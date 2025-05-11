@@ -47,6 +47,13 @@ jobs:
           region: '${{ env.REGION }}'
           # NOTE: If using a different source folder, update the image name below:
           source: './'
+      
+      - name: Allow unauthenticated access
+        run: |
+          gcloud run services add-iam-policy-binding llm-garage \
+          --member="allUsers" \
+          --role="roles/run.invoker" \
+          --region=us-central1
 
       # If required, use the Cloud Run URL output in later steps
       - name: 'Show output'
