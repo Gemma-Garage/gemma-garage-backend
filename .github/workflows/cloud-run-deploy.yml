@@ -32,7 +32,6 @@ jobs:
           gcloud builds submit \
             --config cloudbuild.yaml \
             --substitutions _HF_TOKEN=${{ secrets.HF_TOKEN }},_SERVICE=${{ env.SERVICE }} \
-            --tag gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }} \
             --project ${{ env.PROJECT_ID }} \
 
       - name: 'Deploy to Cloud Run'
