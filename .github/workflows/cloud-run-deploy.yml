@@ -30,10 +30,11 @@ jobs:
       - name: 'Build and Push Docker Image'
         run: |
           gcloud builds submit \
+            --config cloudbuild.yaml \
+            --substitutions _HF_TOKEN=${{ secrets.HF_TOKEN }},_SERVICE=${{ env.SERVICE }}
             --tag gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }} \
             --project ${{ env.PROJECT_ID }} \
-            --build-arg HF_TOKEN=${{ secrets.HF_TOKEN }}
-
+            
       - name: 'Deploy to Cloud Run'
         run: |
           gcloud run deploy ${{ env.SERVICE }} \

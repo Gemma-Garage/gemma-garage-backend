@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 
 #huggingface token
-#ARG HF_TOKEN
+ARG HF_TOKEN
 
 # Install git
 RUN apt-get update && \
@@ -15,7 +15,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN huggingface-cli login --token  
+RUN huggingface-cli login --token ${HF_TOKEN}  
 
 
 # Copy the rest of the application
