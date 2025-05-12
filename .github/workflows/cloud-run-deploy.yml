@@ -27,6 +27,7 @@ jobs:
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
       
+      #Change policy so service is publicly accessible
       - name: 'Set IAM Policy for Cloud Run'
         run: |
           gcloud beta run services add-iam-policy-binding \
