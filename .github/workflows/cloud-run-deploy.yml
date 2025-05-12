@@ -47,6 +47,7 @@ jobs:
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
             --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }} \
+            --cpu=2
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
             --memory 8Gi
