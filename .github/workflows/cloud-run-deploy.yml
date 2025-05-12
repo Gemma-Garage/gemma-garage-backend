@@ -26,6 +26,14 @@ jobs:
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+      
+      - name: 'Set IAM Policy for Cloud Run'
+        run: |
+          gcloud beta run services add-iam-policy-binding \
+            --region=${{ env.REGION }} \
+            --member=allUsers \
+            --role=roles/run.invoker \
+            ${{ env.SERVICE }}
 
       - name: 'Build and Push Docker Image'
         run: |
