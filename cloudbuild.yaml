@@ -3,9 +3,9 @@ steps:
     args:
       - build
       - '-t'
-      - 'gcr.io/$PROJECT_ID/$SERVICE'
+      - 'gcr.io/$PROJECT_ID/$_SERVICE'
       - '--build-arg'
       - 'HF_TOKEN=$_HF_TOKEN'
       - '.'
 images:
-  - 'gcr.io/$PROJECT_ID/$SERVICE'
+  - 'gcr.io/$PROJECT_ID/$_SERVICE'
