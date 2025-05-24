@@ -44,14 +44,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.send_json({"test connection": "success", "model_name": model_name, "dataset_path": dataset_path})
 
-    run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
+    # run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
 
-    loss_values = []
-    while True:
-        loss_values = get_logs()
+    # loss_values = []
+    # while True:
+    #     loss_values = get_logs()
 
-        if loss_values is not None:
-            await websocket.send_json({"loss_values": loss_values})
+    #     if loss_values is not None:
+    #         await websocket.send_json({"loss_values": loss_values})
 
 # @router.websocket("/ws/train")
 # async def websocket_endpoint(websocket: WebSocket):
