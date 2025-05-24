@@ -49,4 +49,4 @@ jobs:
             --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE }} \
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
-            --memory 2Gi
+            --memory 4Gi
