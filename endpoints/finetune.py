@@ -6,7 +6,7 @@ from finetuning.finetuning import *
 from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket
 from finetuning.finetuning import FineTuningEngine
-from finetuning.vertexai import run_vertexai_job, check_logs
+from finetuning.vertexai import run_vertexai_job, get_logs
 from utils.file_handler import UPLOAD_DIR
 import time
 import asyncio
@@ -48,7 +48,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     loss_values = []
     while True:
-        loss_values = check_logs(model_name, dataset_path, epochs, learning_rate, lora_rank)
+        loss_values = get_logs()
 
         if loss_values is not None:
             await websocket.send_json({"loss_values": loss_values})

@@ -50,8 +50,7 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
 def get_logs(
     project_id="llm-garage",
     log_name="projects/llm-garage/logs/gemma-finetune-logs",
-    limit=100,
-):
+    limit=100):
     client = logging.Client(project=project_id)
 
     # Query
