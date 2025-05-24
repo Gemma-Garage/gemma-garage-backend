@@ -43,7 +43,8 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
         accelerator_count=1,
         args=training_args,
         replica_count=1,
-        sync=True
+        sync=False,
+        service_account="513913820596-compute@developer.gserviceaccount.com"
         # service_account="YOUR_VERTEX_AI_CUSTOM_SERVICE_ACCOUNT@YOUR_PROJECT_ID.iam.gserviceaccount.com" # Optional: if needed
     )
 
