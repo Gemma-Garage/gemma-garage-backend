@@ -1,0 +1,1 @@
+gcloud projects add-iam-policy-binding gemma-garage --member="serviceAccount:service-608182611575@gcp-sa-aiplatform-cc.iam.gserviceaccount.com" --role="roles/storage.objectViewer"

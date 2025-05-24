@@ -1,0 +1,5 @@
+venv/
+.env
+set_env.sh
+test.py
+finetuning/vertexai_env/
