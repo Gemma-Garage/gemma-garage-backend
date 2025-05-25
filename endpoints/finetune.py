@@ -23,40 +23,6 @@ requests = []
 
 router = APIRouter()
 
-# @router.websocket("/ws/train/")
-# async def websocket_endpoint(websocket: WebSocket):
-#     await websocket.accept()
-
-#     # Wait for the client to send the JSON payload with training parameters
-#     try:
-#         payload = await websocket.receive_json()
-#     except Exception as e:
-#         await websocket.send_json({"error": "Invalid JSON payload", "details": str(e)})
-#         await websocket.close()
-#         return
-
-#     # Extract the model name and other parameters from the payload, using defaults if necessary
-#     model_name = payload.get("model_name", "princeton-nlp/Sheared-LLaMA-1.3B")
-#     dataset_path = payload.get("dataset_path")
-#     epochs = payload.get("epochs")
-#     learning_rate = payload.get("learning_rate")
-#     lora_rank = payload.get("lora_rank", 4)  # Get lora_rank with default of 4
-
-#     await websocket.send_json({"test connection": "success", "model_name": model_name, "dataset_path": dataset_path})
-#     await websocket.send_json({"status": "training complete", "weights_url": "test"})
-
-#     await websocket.close()
-
-
-    # run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
-
-    # loss_values = []
-    # while True:
-    #     loss_values = get_logs()
-
-    #     if loss_values is not None:
-    #         await websocket.send_json({"loss_values": loss_values})
-
 @router.websocket("/ws/train")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -77,27 +43,57 @@ async def websocket_endpoint(websocket: WebSocket):
     lora_rank = payload.get("lora_rank", 4)  # Get lora_rank with default of 4
 
     await websocket.send_json({"test connection": "success", "model_name": model_name, "dataset_path": dataset_path})
+
+    run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
+
+    loss_values = []
+    while True:
+        loss_values = get_logs()
+
+        if loss_values is not None:
+            await websocket.send_json({"loss_values": loss_values})
+
+# @router.websocket("/ws/train")
+# async def websocket_endpoint(websocket: WebSocket):
+#     await websocket.accept()
+
+#     # Wait for the client to send the JSON payload with training parameters
+#     try:
+#         payload = await websocket.receive_json()
+#     except Exception as e:
+#         await websocket.send_json({"error": "Invalid JSON payload", "details": str(e)})
+#         await websocket.close()
+#         return
+
+#     # Extract the model name and other parameters from the payload, using defaults if necessary
+#     model_name = payload.get("model_name", "princeton-nlp/Sheared-LLaMA-1.3B")
+#     dataset_path = payload.get("dataset_path")
+#     epochs = payload.get("epochs")
+#     learning_rate = payload.get("learning_rate")
+#     lora_rank = payload.get("lora_rank", 4)  # Get lora_rank with default of 4
+
+#     await websocket.send_json({"test connection": "success", "model_name": model_name, "dataset_path": dataset_path})
     
-    # Get the main event loop
-    main_loop = asyncio.get_running_loop()
+#     # Get the main event loop
+#     main_loop = asyncio.get_running_loop()
     
-    engine = FineTuningEngine(model_name, websocket)
-    dataset = engine.load_new_dataset(dataset_path)
-    engine.set_lora_fine_tuning(dataset, 
-                                learning_rate=learning_rate, 
-                                epochs=epochs,
-                                lora_rank=lora_rank,  # Pass lora_rank to the engine
-                                callback_loop=main_loop)  # Pass the loop to set up callbacks
+#     engine = FineTuningEngine(model_name, websocket)
+#     dataset = engine.load_new_dataset(dataset_path)
+#     engine.set_lora_fine_tuning(dataset, 
+#                                 learning_rate=learning_rate, 
+#                                 epochs=epochs,
+#                                 lora_rank=lora_rank,  # Pass lora_rank to the engine
+#                                 callback_loop=main_loop)  # Pass the loop to set up callbacks
     
-    # Offload the blocking training process to a thread
-    await asyncio.to_thread(engine.perform_fine_tuning)
+#     # Offload the blocking training process to a thread
+#     await asyncio.to_thread(engine.perform_fine_tuning)
     
-    await asyncio.sleep(1)
-    try:
-        await websocket.send_json({"status": "training complete", "weights_url": engine.weights_path})
-    except Exception as e:
-        print("Error sending final update:", e)
-    await websocket.close()
+#     await asyncio.sleep(1)
+#     try:
+#         await websocket.send_json({"status": "training complete", "weights_url": engine.weights_path})
+#     except Exception as e:
+#         print("Error sending final update:", e)
+#     await websocket.close()
 
 @router.post("/set_train_params")
 async def set_train_params(request:FinetuneRequest):
