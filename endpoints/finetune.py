@@ -56,7 +56,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if loss_values is not None:
             await websocket.send_json({"loss_values": loss_values})
         
-        time.sleep(100)
+        time.sleep(10)
 
 # @router.websocket("/ws/train")
 # async def websocket_endpoint(websocket: WebSocket):
