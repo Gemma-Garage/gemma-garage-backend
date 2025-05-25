@@ -60,7 +60,7 @@ def get_logs(
     # The filter string must be a compact single line.
     print("current_time:")
     print(current_time)
-    filter_str = f'logName="{log_name}" AND timestamp >= "2025-05-25T15:10:00Z"'
+    filter_str = f'logName="{log_name}" AND timestamp >= "2025-05-25T18:25:00Z"'
     
     entries = client.list_entries(
         filter_=filter_str,
