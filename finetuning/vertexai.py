@@ -69,6 +69,9 @@ def get_logs(
             "textPayload": entry.payload if isinstance(entry.payload, str) else None
         })
 
+    print(f"Retrieved {len(logs)} logs from {log_name} in project {project_id}.")
+    print(logs)
+
     return extract_loss_from_logs(logs)
 
 
@@ -96,6 +99,8 @@ def extract_loss_from_logs(logs):
     # Sort by timestamp
     loss_values.sort(key=lambda x: datetime.fromisoformat(x[0].replace("Z", "+00:00")))
 
+    print(f"Extracted {len(loss_values)} loss entries from logs.")
+    print(loss_values)
     # Return json
     return json.dumps([{"timestamp": t, "loss": l} for t, l in loss_values], indent=2)
 
