@@ -49,13 +49,17 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
     )
 
 def get_logs(
+    current_time,
     project_id="llm-garage",
     log_name="projects/llm-garage/logs/gemma-finetune-logs",
     limit=100):
     client = logging.Client(project=project_id)
 
     # Query
-    filter_str = f'logName="{log_name}"'
+    # Ensure current_time is a timezone-aware datetime object, preferably UTC.
+    # The filter string must be a compact single line.
+    filter_str = f'logName="{log_name}" AND timestamp >= "{current_time.isoformat()}"'
+    
     entries = client.list_entries(
         filter_=filter_str,
         order_by=logging.DESCENDING,

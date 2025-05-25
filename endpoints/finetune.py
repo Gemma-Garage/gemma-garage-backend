@@ -10,6 +10,8 @@ from finetuning.vertexai import run_vertexai_job, get_logs
 from utils.file_handler import UPLOAD_DIR
 import time
 import asyncio
+from datetime import datetime, timezone
+current_utc_time = datetime.now(timezone.utc)
 
 class FinetuneRequest(BaseModel):
     model_name: str
@@ -44,11 +46,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.send_json({"test connection": "success", "model_name": model_name, "dataset_path": dataset_path})
 
+    current_utc_time = datetime.now(timezone.utc)
+
     run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
 
     loss_values = []
     while True:
-        loss_values = get_logs()
+        loss_values = get_logs(current_utc_time)
 
         if loss_values is not None:
             await websocket.send_json({"loss_values": loss_values})
