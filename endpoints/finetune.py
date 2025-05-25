@@ -11,7 +11,6 @@ from utils.file_handler import UPLOAD_DIR
 import time
 import asyncio
 from datetime import datetime, timezone
-current_utc_time = datetime.now(timezone.utc)
 
 class FinetuneRequest(BaseModel):
     model_name: str

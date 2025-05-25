@@ -58,6 +58,8 @@ def get_logs(
     # Query
     # Ensure current_time is a timezone-aware datetime object, preferably UTC.
     # The filter string must be a compact single line.
+    print("current_time:")
+    print(current_time)
     filter_str = f'logName="{log_name}" AND timestamp >= "{current_time.isoformat()}"'
     
     entries = client.list_entries(
