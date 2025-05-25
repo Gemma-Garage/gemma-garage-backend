@@ -2,13 +2,14 @@ from google.cloud import aiplatform
 from google.cloud import logging
 import ast
 from datetime import datetime
+from config_vars import NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET
 import json
 
 
 def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank):
-    NEW_STAGING_BUCKET = "gs://llm-garage-vertex-staging" # Example, choose a unique name
-    NEW_DATA_BUCKET = "gs://llm-garage-datasets"         # Example, choose a unique name
-    NEW_MODEL_OUTPUT_BUCKET = "gs://llm-garage-models/gemma-peft-vertex-output" #"gs://llm-garage-models"   # Example, choose a unique name
+    # NEW_STAGING_BUCKET = "gs://llm-garage-vertex-staging" # Example, choose a unique name
+    # NEW_DATA_BUCKET = "gs://llm-garage-datasets"         # Example, choose a unique name
+    # NEW_MODEL_OUTPUT_BUCKET = "gs://llm-garage-models/gemma-peft-vertex-output" #"gs://llm-garage-models"   # Example, choose a unique name
 
     aiplatform.init(project="llm-garage", 
                     location="us-central1",
@@ -25,12 +26,12 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank)
 
     # Arguments for your training_task.py script
     training_args = [
-        f"--dataset={NEW_DATA_BUCKET}/questions.json",         # GCS path to your data in llm-garage
+        f"--dataset={NEW_DATA_BUCKET}/{dataset_path}",         # GCS path to your data in llm-garage
         f"--output_dir={NEW_MODEL_OUTPUT_BUCKET}/model/", # GCS path for output in llm-garage
-        "--model_name=google/gemma-3-1b-it", # Or your desired model, updated to a valid gemma model
-        "--epochs=1",                   # Example
-        "--learning_rate=0.0002",       # Example
-        "--lora_rank=4"                 # Example
+        f"--model_name={model_name}", # Or your desired model, updated to a valid gemma model
+        f"--epochs={epochs}",                   # Example
+        f"--learning_rate={learning_rate}",       # Example
+        f"--lora_rank={lora_rank}"                 # Example
         # Add other arguments as needed by training_task.py
     ]
 

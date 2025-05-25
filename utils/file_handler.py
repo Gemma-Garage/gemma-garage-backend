@@ -1,15 +1,33 @@
 import os
-import shutil
+# import shutil # No longer needed for GCS upload
 from fastapi import UploadFile
 import uuid
+from google.cloud import storage # Added for GCS
+from ..config_vars import NEW_DATA_BUCKET # Import the bucket name
 
-UPLOAD_DIR = "uploads"
+# UPLOAD_DIR = "uploads" # No longer needed
 
 async def save_uploaded_file(uploaded_file: UploadFile) -> str:
-    if not os.path.exists(UPLOAD_DIR):
-        os.makedirs(UPLOAD_DIR)
-    file_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{uploaded_file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(uploaded_file.file, buffer)
-    return file_path
+    """
+    Uploads a file to Google Cloud Storage and returns its GCS URI.
+    """
+    if not uploaded_file.filename:
+        raise ValueError("File name cannot be empty")
+
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(NEW_DATA_BUCKET.replace("gs://", "")) # Remove gs:// prefix for bucket name
+
+    blob_name = uploaded_file.filename 
+    blob = bucket.blob(blob_name)
+
+    try:
+        # Upload the file
+        # uploaded_file.file is a SpooledTemporaryFile, which can be read directly
+        blob.upload_from_file(uploaded_file.file)
+    except Exception as e:
+        # Handle exceptions during upload (e.g., permissions, network issues)
+        raise RuntimeError(f"Failed to upload file to GCS: {e}") from e
+
+    # Return the GCS URI of the uploaded file
+    gcs_uri = f"gs://{bucket.name}/{blob.name}"
+    return gcs_uri
