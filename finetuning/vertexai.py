@@ -61,7 +61,6 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
         replica_count=1,
         sync=False, # Run asynchronously
         service_account=VERTEX_AI_SERVICE_ACCOUNT,
-        labels=job_labels # Pass labels here
     )
     print(f"Vertex AI Job {job.display_name} (resource: {job.resource_name}) submitted with labels: {job_labels}")
     # No need to return job.resource_name if get_logs relies solely on the label for filtering.
