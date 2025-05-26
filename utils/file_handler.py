@@ -12,7 +12,7 @@ async def save_uploaded_file(uploaded_file: UploadFile, dest_bucket_name: str) -
         raise ValueError("File name cannot be empty")
 
     storage_client = storage.Client()
-    bucket = storage_client.bucket(dest_bucket_name) # Remove gs:// prefix for bucket name
+    bucket = storage_client.bucket(dest_bucket_name.replace("gs://", "")) # Remove gs:// prefix for bucket name
 
     blob_name = uploaded_file.filename 
     blob = bucket.blob(blob_name)
