@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from fastapi import FastAPI, WebSocket
 from finetuning.finetuning import FineTuningEngine
 from finetuning.vertexai import run_vertexai_job, get_logs
-from utils.file_handler import UPLOAD_DIR
 # import time # No longer directly used in the loop, asyncio.sleep is used
 import asyncio
 from datetime import datetime, timezone, timedelta # Added timedelta
