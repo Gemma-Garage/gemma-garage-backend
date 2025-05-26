@@ -3,11 +3,8 @@ import os
 from fastapi import UploadFile
 import uuid
 from google.cloud import storage # Added for GCS
-from ..config_vars import NEW_DATA_BUCKET # Import the bucket name
 
-# UPLOAD_DIR = "uploads" # No longer needed
-
-async def save_uploaded_file(uploaded_file: UploadFile) -> str:
+async def save_uploaded_file(uploaded_file: UploadFile, dest_bucket_name: str) -> str:
     """
     Uploads a file to Google Cloud Storage and returns its GCS URI.
     """
@@ -15,7 +12,7 @@ async def save_uploaded_file(uploaded_file: UploadFile) -> str:
         raise ValueError("File name cannot be empty")
 
     storage_client = storage.Client()
-    bucket = storage_client.bucket(NEW_DATA_BUCKET.replace("gs://", "")) # Remove gs:// prefix for bucket name
+    bucket = storage_client.bucket(dest_bucket_name.replace("gs://", "")) # Remove gs:// prefix for bucket name
 
     blob_name = uploaded_file.filename 
     blob = bucket.blob(blob_name)

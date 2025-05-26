@@ -2,26 +2,39 @@ from google.cloud import aiplatform
 from google.cloud import logging
 import ast
 from datetime import datetime
-from ..config_vars import NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET 
 import json
+import os  # Added os module
+
+# Get bucket names from environment variables
+NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")  # Provide a sensible default or raise an error if not set
+NEW_MODEL_OUTPUT_BUCKET = os.environ.get("NEW_MODEL_OUTPUT_BUCKET", "gs://your-default-model-output-bucket")
+NEW_STAGING_BUCKET = os.environ.get("NEW_STAGING_BUCKET", "gs://your-default-staging-bucket")
 
 
 def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank):
-    # NEW_STAGING_BUCKET = "gs://llm-garage-vertex-staging" # Example, choose a unique name
-    # NEW_DATA_BUCKET = "gs://llm-garage-datasets"         # Example, choose a unique name
-    # NEW_MODEL_OUTPUT_BUCKET = "gs://llm-garage-models/gemma-peft-vertex-output" #"gs://llm-garage-models"   # Example, choose a unique name
+    # The lines assigning these from config_vars are no longer needed as they are module-level now
+    # NEW_STAGING_BUCKET = "gs://llm-garage-vertex-staging" 
+    # NEW_DATA_BUCKET = "gs://llm-garage-datasets"         
+    # NEW_MODEL_OUTPUT_BUCKET = "gs://llm-garage-models/gemma-peft-vertex-output"
+
+    if not all([NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET]) or \
+       "your-default" in NEW_DATA_BUCKET:  # Basic check if defaults are used
+        # Consider raising an error or logging a strong warning if critical env vars are not set
+        print("WARNING: One or more GCS bucket environment variables are not set or are using default placeholder values.")
+        # raise ValueError("Required GCS bucket environment variables are not set.")
+
 
     aiplatform.init(project="llm-garage", 
                     location="us-central1",
                     staging_bucket=NEW_STAGING_BUCKET)
 
-    job_display_name = "gemma-peft-finetune-job-llm-garage" # Store display name in a variable
+    job_display_name = "gemma-peft-finetune-job-llm-garage"  # Store display name in a variable
 
     job = aiplatform.CustomContainerTrainingJob(
-        display_name=job_display_name, # Use the variable here
-        container_uri="gcr.io/llm-garage/gemma-finetune:latest", # Image from llm-garage GCR
+        display_name=job_display_name,  # Use the variable here
+        container_uri="gcr.io/llm-garage/gemma-finetune:latest",  # Image from llm-garage GCR
         # model_serving_container_image_uri is for deploying the trained model, not for training itself.
-        model_serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.1-13:latest", # Optional
+        model_serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.1-13:latest",  # Optional
     )
 
     # Arguments for your training_task.py script
