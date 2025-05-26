@@ -15,6 +15,7 @@ NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-buck
 @router.post("/upload")
 async def upload_dataset(file: UploadFile = File(...)):
     # Save the file using a utility function
+    print(f"Bucket name {NEW_DATA_BUCKET}")
     file_location = await save_uploaded_file(file, NEW_DATA_BUCKET)
     
     # Get file extension
