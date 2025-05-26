@@ -50,9 +50,10 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
         f"--learning_rate={learning_rate}",
         f"--lora_rank={lora_rank}",
         f"--request_id={request_id}" # Pass request_id to the training container
+        f"--project_id={VERTEX_AI_PROJECT}"  # Pass project_id for logging
     ]
 
-    print(f"Submitting training job: {job_display_name} with request_id: {request_id}")
+    print(f"Submitting training job: {job_display_name} with request_id: {request_id} for project {VERTEX_AI_PROJECT}")
     job.run(
         base_output_dir=f"{NEW_MODEL_OUTPUT_BUCKET}/vertex_outputs/{request_id}", # Vertex AI specific outputs, unique per request
         machine_type="n1-standard-8",
