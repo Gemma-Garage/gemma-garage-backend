@@ -4,7 +4,7 @@ FROM python:3.13-slim
 ARG HF_TOKEN
 
 # Set default environment variables for GCS buckets
-ENV NEW_DATA_BUCKET="gs:// llm-garage-datasets"
+ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
 ENV NEW_MODEL_OUTPUT_BUCKET="gs://llm-garage-models-default/gemma-peft-vertex-output"
 ENV NEW_STAGING_BUCKET="gs://llm-garage-vertex-staging"
 # Add any other environment variables you need
