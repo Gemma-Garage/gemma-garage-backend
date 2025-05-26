@@ -95,7 +95,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if not new_logs_processed_this_iteration:
                 since_timestamp = datetime.now(timezone.utc)
 
-            await asyncio.sleep(10) # Use asyncio.sleep in an async function
+            await asyncio.sleep(1) # Use asyncio.sleep in an async function
 
     except Exception as e:
         # Catch exceptions that occur within the WebSocket communication loop (e.g., client disconnects)
