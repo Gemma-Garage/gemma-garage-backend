@@ -15,9 +15,9 @@ VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "5139138
 
 
 def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank, request_id: str):
-    if not all([NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET]) or \\
-       "your-default" in NEW_DATA_BUCKET:
-        print("WARNING: One or more GCS bucket environment variables are not set or are using default placeholder values.")
+    # if not all([NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET]) or \\
+    #    "your-default" in NEW_DATA_BUCKET:
+    #     print("WARNING: One or more GCS bucket environment variables are not set or are using default placeholder values.")
 
     aiplatform.init(project=VERTEX_AI_PROJECT,
                     location=VERTEX_AI_LOCATION,
