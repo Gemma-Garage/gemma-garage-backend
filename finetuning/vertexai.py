@@ -4,6 +4,7 @@ import ast
 from datetime import datetime, timezone # Ensure timezone is imported
 import json
 import os
+import time
 
 # Get bucket names from environment variables
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")
@@ -35,10 +36,10 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
     )
 
     # Ensure dataset_path is just the filename, bucket is prepended
-    if dataset_path.startswith("gs://"):
-        # If full path is provided, extract filename. This is a safeguard.
-        dataset_path = dataset_path.split("/")[-1]
-        print(f"Warning: dataset_path included gs:// prefix. Using filename: {dataset_path}")
+    # if dataset_path.startswith("gs://"):
+    #     # If full path is provided, extract filename. This is a safeguard.
+    #     dataset_path = dataset_path.split("/")[-1]
+    #     print(f"Warning: dataset_path included gs:// prefix. Using filename: {dataset_path}")
 
 
     training_args = [
@@ -62,6 +63,7 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
         sync=False, # Run asynchronously
         service_account=VERTEX_AI_SERVICE_ACCOUNT,
     )
+    time.sleep(10)
     print(f"Vertex AI Job {job.display_name} (resource: {job.resource_name}) submitted with labels: {job_labels}")
     # No need to return job.resource_name if get_logs relies solely on the label for filtering.
 
