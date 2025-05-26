@@ -49,7 +49,7 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
         f"--epochs={epochs}",
         f"--learning_rate={learning_rate}",
         f"--lora_rank={lora_rank}",
-        f"--request_id={request_id}" # Pass request_id to the training container
+        f"--request_id={request_id}", # Pass request_id to the training container
         f"--project_id={VERTEX_AI_PROJECT}"  # Pass project_id for logging
     ]
 
