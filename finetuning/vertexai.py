@@ -2,7 +2,7 @@ from google.cloud import aiplatform
 from google.cloud import logging
 import ast
 from datetime import datetime
-from config_vars import NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET
+from ..config_vars import NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET 
 import json
 
 
