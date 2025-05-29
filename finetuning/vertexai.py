@@ -122,68 +122,51 @@ def get_logs(
     return extract_loss_from_logs(logs)
 
 # 🧠 Function to parse logs and extract loss values
-def extract_loss_from_logs(logs):
-    loss_values = []
-
+def extract_loss_from_logs(logs): # logs is a list of {"timestamp": ..., "payload": ...}
+    processed_logs = []
     for log_entry in logs:
-        payload = log_entry.get("payload") # Changed to "payload"
+        payload = log_entry.get("payload")
         timestamp = log_entry.get("timestamp")
 
-        if not payload: # Skip if no payload
+        if not payload: # Skip if no payload or timestamp
             continue
 
-        parsed_payload_dict = None
+        entry_to_add = None
         if isinstance(payload, dict):
-            parsed_payload_dict = payload # It's already the structured log dict
+            entry_to_add = payload.copy() # It's already the structured log dict
         elif isinstance(payload, str):
             # If the payload is a string, attempt to parse it if it looks like a dict string
-            # This handles cases where a stringified dict might have been logged.
             if payload.strip().startswith("{") and payload.strip().endswith("}"):
                 try:
-                    parsed_payload_dict = ast.literal_eval(payload)
-                except (ValueError, SyntaxError) as e:
-                    # print(f"Could not parse string payload as dict: {payload}, Error: {e}") # Debug
-                    pass # Continue, as it might be a plain string with "loss" later
-            # If it's a plain string, we might still search for "loss" if needed,
-            # but primary expectation is structured logs or stringified dicts from them.
-            # For now, if it's a plain string and not a dict-string, we won't find 'loss' via key access.
-            # A simple "loss" in text check could be added here for very basic string logs if necessary.
-            # if not parsed_payload_dict and "loss" in payload.lower():
-            #    print(f"Found 'loss' in plain string, but no structured data: {payload}")
-
-
-        if isinstance(parsed_payload_dict, dict) and "loss" in parsed_payload_dict:
-            loss = parsed_payload_dict.get("loss") # Use .get for safety
-            # Also, other fields like 'epoch', 'step', 'learning_rate' are in parsed_payload_dict
-            if isinstance(loss, (int, float)): # Ensure loss is a number
-                loss_values.append({ # Store as a dictionary directly
-                    "timestamp": timestamp, 
-                    "loss": loss,
-                    # Optionally include other metrics if needed by frontend later
-                    # "epoch": parsed_payload_dict.get("epoch"),
-                    # "step": parsed_payload_dict.get("step"),
-                    # "learning_rate": parsed_payload_dict.get("learning_rate")
-                })
+                    parsed_dict = ast.literal_eval(payload)
+                    if isinstance(parsed_dict, dict):
+                        entry_to_add = parsed_dict
+                    else: # literal_eval returned non-dict
+                        entry_to_add = {"message": payload}
+                except (ValueError, SyntaxError):
+                    # It's a string but not a parsable dict string, treat as simple message
+                    entry_to_add = {"message": payload}
             else:
-                print(f"Warning: Parsed loss is not a number: {loss} from payload: {parsed_payload_dict}")
-        # else:
-            # print(f"Debug: No 'loss' key in parsed_payload_dict or payload not a dict: {parsed_payload_dict}")
+                # Plain string message
+                entry_to_add = {"message": payload}
+        
+        if entry_to_add is not None:
+            # Ensure timestamp from the log entry is consistently part of the object sent to frontend
+            entry_to_add["timestamp"] = timestamp 
+            processed_logs.append(entry_to_add)
 
-
-    if not loss_values:
-        # print(f"No loss values extracted from {len(logs)} log entries.") # Debug
-        return json.dumps([]) # Return empty JSON array string if no loss values
+    if not processed_logs:
+        return json.dumps([]) # Return empty JSON array string
 
     # Sort by timestamp before returning
-    # The items in loss_values are now dicts: {"timestamp": ..., "loss": ...}
-    loss_values.sort(key=lambda x: datetime.fromisoformat(x["timestamp"].replace("Z", "+00:00")))
-
-    # print(f"Extracted {len(loss_values)} loss entries from logs.")
-    # print(loss_values) # This will now be a list of dicts
+    # Handle cases where timestamp might be None in sorting key
+    processed_logs.sort(
+        key=lambda x: datetime.fromisoformat(x["timestamp"].replace("Z", "+00:00")) if x.get("timestamp") else datetime.min.replace(tzinfo=timezone.utc)
+    )
     
     # The endpoint expects a JSON string which it will then parse.
-    # The list of dicts is already what the frontend expects for data.loss_values after JSON parsing.
-    return json.dumps(loss_values, indent=2)
+    # This list of dictionaries is what the frontend expects for data.loss_values after JSON parsing.
+    return json.dumps(processed_logs, indent=2)
 
 # Remove or comment out the __main__ block if it\'s not needed for direct script execution
 # or adapt it for testing the new functions.
