@@ -12,9 +12,8 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
         raise ValueError("GCS path must start with gs://")
     path_without_scheme = gcs_path[5:]
     if "/" not in path_without_scheme:
-        # Path is likely just "gs://bucketname" which means prefix is empty
         bucket_name = path_without_scheme
-        object_prefix = ""
+        object_prefix = "" # No prefix, means root of the bucket or just bucket itself
     else:
         parts = path_without_scheme.split("/", 1)
         bucket_name = parts[0]
@@ -22,75 +21,67 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
     return bucket_name, object_prefix
 
 @router.post("/download_weights")
-async def generate_gcs_download_url(request: Request):
+async def generate_gcs_download_urls(request: Request): # Renamed for clarity
     body = await request.json()
     request_id = body.get("request_id")
 
     if not request_id:
         raise HTTPException(status_code=400, detail="request_id not provided")
 
-    # Use the existing NEW_MODEL_OUTPUT_BUCKET environment variable
-    base_gcs_output_bucket = os.environ.get("NEW_MODEL_OUTPUT_BUCKET")
-    if not base_gcs_output_bucket:
+    base_gcs_output_bucket_uri = os.environ.get("NEW_MODEL_OUTPUT_BUCKET")
+    if not base_gcs_output_bucket_uri:
         raise HTTPException(status_code=500, detail="NEW_MODEL_OUTPUT_BUCKET environment variable not set")
 
-    # Construct the GCS directory path using the base bucket and request_id
-    # This should match the output structure: gs://<NEW_MODEL_OUTPUT_BUCKET>/vertex_outputs/<request_id>/
-    gcs_directory_path = f"{base_gcs_output_bucket.rstrip('/')}/vertex_outputs/{request_id}/"
+    # Corrected path construction to point to where model artifacts are saved by the training script
+    # Training script saves to: {NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}
+    # Example: gs://my-bucket-name/actual-path-prefix/model/request_id/
+    gcs_model_directory_path = f"{base_gcs_output_bucket_uri.rstrip('/')}/model/{request_id}/"
 
     try:
-        bucket_name, directory_prefix = parse_gcs_path(gcs_directory_path)
+        bucket_name, model_directory_prefix = parse_gcs_path(gcs_model_directory_path)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid GCS path format constructed: {gcs_directory_path} - {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid GCS path format constructed: {gcs_model_directory_path} - {str(e)}")
 
-    # Ensure directory_prefix for a directory ends with a '/' (already handled by f-string above, but good for robustness)
-    if directory_prefix and not directory_prefix.endswith('/'):
-        directory_prefix += '/'
-    
     storage_client = storage.Client()
     
     try:
         bucket = storage_client.bucket(bucket_name)
     except Exception as e:
-        # Handle cases where bucket might not be accessible or client init fails
-        print(f"Error initializing storage client or getting bucket: {e}") # Basic logging
-        raise HTTPException(status_code=500, detail=f"Error accessing GCS bucket \'{bucket_name}\': {str(e)}")
+        print(f"Error initializing storage client or getting bucket: {e}")
+        raise HTTPException(status_code=500, detail=f"Error accessing GCS bucket '{bucket_name}': {str(e)}")
 
-    target_blob_obj = None
-    found_filename = None
-    # These are the base filenames we expect in the PEFT adapter output directory
-    preferred_filenames = ["adapter_model.safetensors", "adapter_model.bin"] 
-    
-    for filename in preferred_filenames:
-        # Construct the full blob name (object path within the bucket)
-        blob_name_to_check = directory_prefix + filename
-        
-        blob = bucket.get_blob(blob_name_to_check)
-        if blob and blob.exists(): # Check if blob exists
-            target_blob_obj = blob
-            found_filename = filename # This is the base filename, e.g., "adapter_model.safetensors"
-            break # Found the first preferred file, stop searching
-            
-    if not target_blob_obj:
+    blobs = list(bucket.list_blobs(prefix=model_directory_prefix))
+
+    if not blobs:
         raise HTTPException(
             status_code=404, 
-            detail=f"Could not find \'adapter_model.safetensors\' or \'adapter_model.bin\' in GCS path {gcs_directory_path}"
+            detail=f"No files found in GCS path {gcs_model_directory_path}. Ensure training completed and saved files."
         )
 
+    files_to_download = []
     try:
-        # Generate a signed URL for the blob, expiring in 1 hour
-        signed_url = target_blob_obj.generate_signed_url(
-            version="v4",
-            expiration=timedelta(hours=1),
-            method="GET",
-        )
-        # found_filename is already the base name (e.g., "adapter_model.safetensors")
-        # which is suitable for the download attribute in HTML <a> tag.
-        return JSONResponse({"download_url": signed_url, "filename": found_filename})
+        for blob in blobs:
+            # Skip if it's a "directory" placeholder object (some GCS operations create these)
+            if blob.name.endswith('/'):
+                continue
+            
+            signed_url = blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(hours=1),
+                method="GET",
+            )
+            # Get just the filename from the full blob path
+            file_name = blob.name.split('/')[-1]
+            files_to_download.append({"filename": file_name, "download_url": signed_url})
+
+        if not files_to_download:
+             raise HTTPException(
+                status_code=404, 
+                detail=f"No downloadable files (non-folders) found in GCS path {gcs_model_directory_path}."
+            )
+
+        return JSONResponse({"files": files_to_download})
 
     except Exception as e:
-        print(f"Error generating signed URL for {target_blob_obj.name}: {e}") # Basic logging
-        raise HTTPException(status_code=500, detail=f"Could not generate download URL: {str(e)}")
-
-# The old GET endpoint /download_file is removed as it's no longer needed.
-# The frontend will use the signed_url directly to download from GCS.
+        print(f"Error generating signed URLs for files in {gcs_model_directory_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not generate download URLs: {str(e)}")
