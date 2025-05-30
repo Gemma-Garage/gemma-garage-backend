@@ -35,13 +35,6 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
         model_serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.1-13:latest", # Optional
     )
 
-    # Ensure dataset_path is just the filename, bucket is prepended
-    # if dataset_path.startswith("gs://"):
-    #     # If full path is provided, extract filename. This is a safeguard.
-    #     dataset_path = dataset_path.split("/")[-1]
-    #     print(f"Warning: dataset_path included gs:// prefix. Using filename: {dataset_path}")
-
-
     training_args = [
         f"--dataset={NEW_DATA_BUCKET}/{dataset_path}",
         f"--output_dir={NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}", # Unique output dir per request

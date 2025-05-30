@@ -7,7 +7,6 @@ ARG HF_TOKEN
 ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
 ENV NEW_MODEL_OUTPUT_BUCKET="gs://llm-garage-models/gemma-peft-vertex-output"
 ENV NEW_STAGING_BUCKET="gs://llm-garage-vertex-staging"
-# Add any other environment variables you need
 
 # Install git
 RUN apt-get update && \
