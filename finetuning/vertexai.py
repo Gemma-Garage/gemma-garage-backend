@@ -22,10 +22,10 @@ def submit_finetuning_job(
     learning_rate: float,
     lora_rank: int = 4,
     request_id: str = None):
-    
+
     output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
     project_id= VERTEX_AI_PROJECT
-    url = "https://llm-garage-finetune-513913820596.us-central1.run.app"
+    url = "https://llm-garage-finetune-513913820596.us-central1.run.app/run-finetune-job"
     payload = {
     "dataset":dataset_path,
     "output_dir": output_dir,
