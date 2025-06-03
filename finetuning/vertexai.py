@@ -5,6 +5,7 @@ from datetime import datetime, timezone # Ensure timezone is imported
 import json
 import os
 import time
+import requests
 
 # Get bucket names from environment variables
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")
@@ -13,6 +14,34 @@ NEW_STAGING_BUCKET = os.environ.get("NEW_STAGING_BUCKET", "gs://your-default-sta
 VERTEX_AI_PROJECT = os.environ.get("VERTEX_AI_PROJECT", "llm-garage")
 VERTEX_AI_LOCATION = os.environ.get("VERTEX_AI_LOCATION", "us-central1")
 VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "513913820596-compute@developer.gserviceaccount.com")
+
+def submit_finetuning_job(
+    model_name: str,
+    dataset_path: str,
+    epochs: int,
+    learning_rate: float,
+    lora_rank: int = 4,
+    request_id: str = None):
+    
+    output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
+    project_id= VERTEX_AI_PROJECT
+    url = "https://llm-garage-finetune-513913820596.us-central1.run.app"
+    payload = {
+    "dataset":dataset_path,
+    "output_dir": output_dir,
+    "model_name": model_name,
+    "epochs": epochs,
+    "learning_rate": learning_rate,
+    "lora_rank": lora_rank,
+    "request_id": request_id,
+    "project_id": project_id
+    }
+    response = requests.post(url, json=payload)
+
+    if response.status_code == 200:
+        print("Job submitted successfully:", response.json())
+    else:
+        print("Failed to submit job:", response.status_code, response.text)
 
 
 def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank, request_id: str):
