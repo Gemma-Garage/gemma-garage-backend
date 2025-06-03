@@ -27,7 +27,7 @@ def submit_finetuning_job(
     project_id= VERTEX_AI_PROJECT
     url = "https://llm-garage-finetune-513913820596.us-central1.run.app/run-finetune-job"
     payload = {
-    "dataset":dataset_path,
+    "dataset": f"{NEW_DATA_BUCKET}/dataset_path",
     "output_dir": output_dir,
     "model_name": model_name,
     "epochs": epochs,
