@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from finetuning.vertexai import run_vertexai_job, get_logs, submit_finetuning_job
+from finetuning.vertexai import get_logs, submit_finetuning_job
 import uuid
 from datetime import datetime, timezone, timedelta
 import json
