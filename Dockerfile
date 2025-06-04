@@ -2,6 +2,8 @@ FROM python:3.13-slim
 
 #huggingface token
 ARG HF_TOKEN
+#Gemini API key
+ARG GEMINI_KEY
 
 # Set default environment variables for GCS buckets
 ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
