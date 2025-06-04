@@ -12,7 +12,7 @@ import uuid
 
 router = APIRouter()
 
-NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")  # Provide a sensible default or raise an error if not set
+NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://default-data-bucket")  # Provide a sensible default or raise an error if not set
 
 
 @router.post("/upload")
@@ -345,7 +345,7 @@ async def generate_synthetic_dataset_with_gemini(
 async def augment_dataset_gemma(
     dataset_gcs_path: str,
     fine_tuning_task_prompt: str,
-    # model_choice: str = "gemini-1.5-flash", # Optional: allow user to choose model
+    model_choice: str = "gemini-1.5-flash", # Optional: allow user to choose model
     num_examples_to_generate: int = 50 # Optional: allow user to set number of examples
 ):
     if not dataset_gcs_path.startswith("gs://"):
