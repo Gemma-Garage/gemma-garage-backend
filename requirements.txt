@@ -17,7 +17,7 @@ frozenlist==1.5.0
 fsspec==2024.12.0
 grpcio==1.71.0
 h11==0.14.0
-huggingface-hub==0.29.3
+#huggingface-hub==0.29.3
 idna==3.10
 Jinja2==3.1.6
 Markdown==3.7
@@ -31,7 +31,7 @@ networkx==3.4.2
 numpy==2.2.3
 packaging==24.2
 pandas==2.2.3
-peft==0.14.0
+#peft==0.14.0
 propcache==0.3.0
 protobuf==6.30.0
 psutil==7.0.0
@@ -46,20 +46,20 @@ PyYAML==6.0.2
 regex==2024.11.6
 requests==2.32.3
 rich==13.9.4
-safetensors==0.5.3
+#safetensors==0.5.3
 setuptools==76.0.0
 six==1.17.0
 sniffio==1.3.1
 starlette==0.46.1
 sympy==1.13.1
-tensorboard==2.19.0
-tensorboard-data-server==0.7.2
-tokenizers==0.21.0
-torch==2.6.0
-tqdm
-transformers @ git+https://github.com/huggingface/transformers@46350f5eae87ac1d168ddfdc57a0b39b64b9a029
+#tensorboard==2.19.0
+#tensorboard-data-server==0.7.2
+#tokenizers==0.21.0
+#torch==2.6.0
+#tqdm
+#transformers @ git+https://github.com/huggingface/transformers@46350f5eae87ac1d168ddfdc57a0b39b64b9a029
 #triton==3.2.0
-trl==0.15.2
+#trl==0.15.2
 typing_extensions==4.12.2
 tzdata==2025.1
 urllib3==2.3.0
