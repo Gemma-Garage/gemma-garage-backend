@@ -352,7 +352,7 @@ async def generate_synthetic_dataset_with_gemini(
 async def augment_dataset_gemma(request: AugmentRequest):
 
     #get parameters from request
-    dataset_gcs_path = request.dataset_gcs_path
+    dataset_gcs_path = f"{NEW_DATA_BUCKET}/{request.dataset_gcs_path}"
     fine_tuning_task_prompt = request.fine_tuning_task_prompt
     model_choice = request.model_choice
     num_examples_to_generate = request.num_examples_to_generate
