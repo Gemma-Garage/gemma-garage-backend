@@ -6,6 +6,7 @@ steps:
       - 'gcr.io/$PROJECT_ID/$_SERVICE'
       - '--build-arg'
       - 'HF_TOKEN=$_HF_TOKEN'
+      - '--build-arg'
       - 'GEMINI_KEY=$_GEMINI_KEY'
       - '.'
 images:
