@@ -15,6 +15,7 @@ router = APIRouter()
 
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://default-data-bucket")  # Provide a sensible default or raise an error if not set
 
+#pydantic model for the request body
 class AugmentRequest(BaseModel):
     dataset_gcs_path: str
     fine_tuning_task_prompt: str
