@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from pydantic import BaseModel
 import os
 import json
 import csv
@@ -13,6 +14,12 @@ import uuid
 router = APIRouter()
 
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://default-data-bucket")  # Provide a sensible default or raise an error if not set
+
+class AugmentRequest(BaseModel):
+    dataset_gcs_path: str
+    fine_tuning_task_prompt: str
+    model_choice: str = "gemini-1.5-flash"
+    num_examples_to_generate: int = 50
 
 
 @router.post("/upload")
@@ -342,12 +349,13 @@ async def generate_synthetic_dataset_with_gemini(
         raise HTTPException(status_code=500, detail=f"Error generating synthetic dataset: {str(e)}")
 
 @router.post("/augment-gemma")
-async def augment_dataset_gemma(
-    dataset_gcs_path: str,
-    fine_tuning_task_prompt: str,
-    model_choice: str = "gemini-1.5-flash", # Optional: allow user to choose model
-    num_examples_to_generate: int = 50 # Optional: allow user to set number of examples
-):
+async def augment_dataset_gemma(request: AugmentRequest):
+
+    #get parameters from request
+    dataset_gcs_path = request.dataset_gcs_path
+    fine_tuning_task_prompt = request.fine_tuning_task_prompt
+    model_choice = request.model_choice
+    num_examples_to_generate = request.num_examples_to_generate
     if not dataset_gcs_path.startswith("gs://"):
         raise HTTPException(status_code=400, detail="Invalid GCS path for dataset.")
     if not fine_tuning_task_prompt.strip():
