@@ -7,7 +7,7 @@ import fitz  # PyMuPDF
 import re
 import unicodedata
 from utils.file_handler import save_uploaded_file
-from google import genai
+import google.generativeai as genai
 from google.cloud import storage
 import uuid
 
