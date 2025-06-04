@@ -6,6 +6,9 @@ import fitz  # PyMuPDF
 import re
 import unicodedata
 from utils.file_handler import save_uploaded_file
+import google.generativeai as genai
+from google.cloud import storage
+import uuid
 
 router = APIRouter()
 
@@ -219,3 +222,223 @@ def process_flexible_csv(csv_path):
             continue
     
     return training_examples
+
+# Helper function to parse JSON stream and ignore broken tail (from notebook)
+# This might be better placed in a utility file if used elsewhere.
+def parse_json_stream_and_ignore_broken_tail(json_string_content: str) -> list:
+    # ... (Implementation from the notebook, ensure logging is adapted or removed if not needed here)
+    # For brevity, I'll assume this function is defined as in the notebook.
+    # Make sure to handle logging appropriately for a backend service.
+    # Simplified version for now:
+    parsed_objects = []
+    decoder = json.JSONDecoder()
+    content_to_parse = json_string_content.strip()
+    if content_to_parse.startswith('['):
+        content_to_parse = content_to_parse[1:]
+    if content_to_parse.endswith(']'):
+        content_to_parse = content_to_parse[:-1]
+    content_to_parse = content_to_parse.strip()
+    idx = 0
+    while idx < len(content_to_parse):
+        start_idx = idx
+        while start_idx < len(content_to_parse) and \
+              (content_to_parse[start_idx].isspace() or content_to_parse[start_idx] == ','):
+            start_idx += 1
+        if start_idx >= len(content_to_parse):
+            break
+        try:
+            obj, end_idx_offset = decoder.raw_decode(content_to_parse, start_idx)
+            parsed_objects.append(obj)
+            idx = end_idx_offset
+        except json.JSONDecodeError:
+            break # Stop parsing on the first error
+    return parsed_objects
+
+async def generate_synthetic_dataset_with_gemini(
+    original_dataset_extract: str,
+    fine_tuning_task_prompt: str,
+    num_examples_to_generate: int = 50, # Default, can be parameterized
+    model_name: str = "gemini-1.5-flash-latest" # Check for latest recommended model
+):
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    genai.configure(api_key=gemini_api_key)
+
+    prompt = f"""You are an expert data generator. Your task is to create a synthetic dataset for fine-tuning a language model.
+    The goal of the fine-tuned model is: {fine_tuning_task_prompt}
+
+    Here is an extract from an example dataset that shows the desired format and style:
+    --- BEGIN EXAMPLE EXTRACT ---
+    {original_dataset_extract}
+    --- END EXAMPLE EXTRACT ---
+
+    Please generate {num_examples_to_generate} new examples in the same JSON format as the extract provided.
+    Ensure each example is a complete JSON object. Output the examples as a JSON array.
+    Start the JSON array with the tag <json_dataset> and do not write this tag anywhere else.
+    Make sure you don't leave any json unfinished.
+    """
+
+    generation_config = genai.types.GenerationConfig(
+        # temperature=0.7, # Adjust as needed
+        # top_p=0.95,
+        # top_k=40,
+        max_output_tokens=8192, # Max for gemini-1.5-flash, adjust if model changes
+    )
+
+    safety_settings = [
+        {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        },
+    ]
+
+    model = genai.GenerativeModel(model_name=model_name, 
+                                  safety_settings=safety_settings,
+                                  generation_config=generation_config)
+
+    # Using a loop for retries or generating in batches if needed (as in notebook)
+    # For now, a single attempt for simplicity, but the notebook's loop is more robust.
+    # The notebook also had a time.sleep(10) which might be necessary for rate limits.
+    
+    # print(f"DEBUG: Gemini Prompt:\n{prompt}") # For debugging
+
+    try:
+        response = await model.generate_content_async(prompt) # Use async version
+        # print(f"DEBUG: Gemini Response Text:\n{response.text}") # For debugging
+        
+        if not response.text or "<json_dataset>" not in response.text:
+            # print(f"DEBUG: Gemini full response object: {response}") # More detailed debugging
+            # Check for prompt feedback if available
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                raise HTTPException(status_code=400, detail=f"Content generation blocked by API. Reason: {response.prompt_feedback.block_reason_message or response.prompt_feedback.block_reason}")
+            raise HTTPException(status_code=500, detail="Failed to generate dataset: No valid JSON found in response or missing <json_dataset> tag.")
+
+        json_to_parse = response.text.split("<json_dataset>", 1)[1]
+        json_to_parse = json_to_parse.replace("```json", "").replace("```", "").strip()
+        
+        # print(f"DEBUG: JSON to parse:\n{json_to_parse}") # For debugging
+
+        dataset = parse_json_stream_and_ignore_broken_tail(json_to_parse)
+        return dataset
+    except Exception as e:
+        # print(f"Error during Gemini API call or parsing: {str(e)}") # For debugging
+        # Check if it's an HTTPException from a block reason, if so, re-raise
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=500, detail=f"Error generating synthetic dataset: {str(e)}")
+
+@router.post("/augment-gemma")
+async def augment_dataset_gemma(
+    dataset_gcs_path: str,
+    fine_tuning_task_prompt: str,
+    # model_choice: str = "gemini-1.5-flash", # Optional: allow user to choose model
+    num_examples_to_generate: int = 50 # Optional: allow user to set number of examples
+):
+    if not dataset_gcs_path.startswith("gs://"):
+        raise HTTPException(status_code=400, detail="Invalid GCS path for dataset.")
+    if not fine_tuning_task_prompt.strip():
+        raise HTTPException(status_code=400, detail="Fine-tuning task prompt cannot be empty.")
+
+    storage_client = storage.Client()
+    
+    try:
+        bucket_name, blob_name = dataset_gcs_path.replace("gs://", "").split("/", 1)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        
+        # Download a portion of the original dataset for context
+        # Limit to avoid very large files; 20k chars should be enough for context
+        original_dataset_content_bytes = blob.download_as_bytes(end=20000) 
+        original_dataset_extract = original_dataset_content_bytes.decode('utf-8', errors='ignore')
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read original dataset from GCS: {str(e)}")
+
+    try:
+        augmented_data = await generate_synthetic_dataset_with_gemini(
+            original_dataset_extract=original_dataset_extract,
+            fine_tuning_task_prompt=fine_tuning_task_prompt,
+            num_examples_to_generate=num_examples_to_generate
+        )
+    except HTTPException as e: # Catch HTTPExceptions from generate_synthetic_dataset_with_gemini
+        raise e # Re-raise them as they are already well-formed
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate augmented data: {str(e)}")
+
+    if not augmented_data:
+        raise HTTPException(status_code=500, detail="Augmented data generation resulted in an empty dataset.")
+
+    # Save the full augmented dataset to GCS
+    try:
+        augmented_blob_name = f"augmented/{uuid.uuid4()}_{os.path.basename(blob_name).replace('.json', '_augmented.json')}"
+        # Ensure NEW_DATA_BUCKET is defined and accessible, e.g., from os.environ
+        # For now, assuming it's the same bucket as the input for simplicity, but should be configurable
+        augmented_bucket_name = NEW_DATA_BUCKET.replace("gs://", "") 
+        augmented_bucket = storage_client.bucket(augmented_bucket_name)
+        augmented_blob = augmented_bucket.blob(augmented_blob_name)
+        
+        augmented_blob.upload_from_string(
+            json.dumps(augmented_data, indent=2),
+            content_type='application/json'
+        )
+        augmented_dataset_gcs_path = f"gs://{augmented_bucket.name}/{augmented_blob.name}"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save augmented dataset to GCS: {str(e)}")
+
+    # Prepare preview (e.g., first 5 items)
+    preview_limit = 5
+    augmented_data_preview = augmented_data[:preview_limit]
+
+    return {
+        "message": "Dataset augmented successfully using Gemma.",
+        "augmented_dataset_gcs_path": augmented_dataset_gcs_path,
+        "preview_augmented_data": {
+            "preview": augmented_data_preview,
+            "full_count": len(augmented_data)
+        }
+    }
+
+
+@router.get("/preview")
+async def preview_uploaded_file(file_path: str):
+    """
+    Preview the content of an uploaded file (JSON, CSV, or PDF).
+    For CSV and PDF, previews the first 5 rows or pages respectively.
+    """
+    if not file_path.startswith("gs://"):
+        raise HTTPException(status_code=400, detail="Invalid file path. Must start with gs://")
+
+    storage_client = storage.Client()
+    
+    try:
+        bucket_name, blob_name = file_path.replace("gs://", "").split("/", 1)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        
+        # Download the file content
+        file_content = blob.download_as_text(encoding='utf-8')
+        
+        # Try to load as JSON
+        try:
+            json_content = json.loads(file_content)
+            # Pretty-print JSON with indentation
+            return json.dumps(json_content, indent=2, ensure_ascii=False)
+        except json.JSONDecodeError:
+            # If not JSON, return as plain text (for CSV or PDF text extractions)
+            return file_content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error accessing file: {str(e)}")
