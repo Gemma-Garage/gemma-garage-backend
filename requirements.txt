@@ -33,7 +33,7 @@ packaging==24.2
 pandas==2.2.3
 #peft==0.14.0
 propcache==0.3.0
-protobuf==6.30.0
+#protobuf==6.30.0
 psutil==7.0.0
 pyarrow==19.0.1
 pydantic==2.10.6
