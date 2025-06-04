@@ -268,6 +268,8 @@ async def generate_synthetic_dataset_with_gemini(
     model_name: str = "gemini-1.5-flash-latest" # Check for latest recommended model
 ):
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    print(f"DEBUG: GEMINI_API_KEY: {gemini_api_key}") # For debugging, remove in production
+    
     if not gemini_api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
