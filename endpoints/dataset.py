@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 import os
 import json
@@ -430,8 +430,8 @@ async def augment_dataset_gemma(request: AugmentRequest):
     }
 
 
-@router.get("/preview")
-async def preview_uploaded_file(file_path: str):
+@router.get("/dataset/preview")
+async def preview_uploaded_file(file_path: str = Query(..., alias="path")):
     """
     Preview the content of an uploaded file (JSON, CSV, or PDF).
     Returns a structured response with preview data and total count for pagination.
