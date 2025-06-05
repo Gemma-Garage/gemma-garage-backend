@@ -417,7 +417,7 @@ async def augment_dataset_gemma(request: AugmentRequest):
         raise HTTPException(status_code=500, detail=f"Failed to save augmented dataset to GCS: {str(e)}")
 
     # Prepare preview (e.g., first 5 items)
-    preview_limit = 5
+    preview_limit = 15
     augmented_data_preview = augmented_data[:preview_limit]
 
     return {
