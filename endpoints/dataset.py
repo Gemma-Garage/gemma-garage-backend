@@ -430,7 +430,7 @@ async def augment_dataset_gemma(request: AugmentRequest):
     }
 
 
-@router.get("/dataset/preview")
+@router.get("/preview")
 async def preview_uploaded_file(file_path: str = Query(..., alias="path")):
     """
     Preview the content of an uploaded file (JSON, CSV, or PDF).
