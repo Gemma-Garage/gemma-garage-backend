@@ -355,10 +355,16 @@ async def generate_synthetic_dataset_with_gemini(
 async def augment_dataset_gemma(request: AugmentRequest):
 
     #get parameters from request
-    dataset_gcs_path = f"{NEW_DATA_BUCKET}/{request.dataset_gcs_path}"
+    # Handle both full GCS paths and relative paths
+    if request.dataset_gcs_path.startswith("gs://"):
+        dataset_gcs_path = request.dataset_gcs_path
+    else:
+        dataset_gcs_path = f"{NEW_DATA_BUCKET}/{request.dataset_gcs_path}"
+    
     fine_tuning_task_prompt = request.fine_tuning_task_prompt
     model_choice = request.model_choice
     num_examples_to_generate = request.num_examples_to_generate
+    
     if not dataset_gcs_path.startswith("gs://"):
         raise HTTPException(status_code=400, detail="Invalid GCS path for dataset.")
     if not fine_tuning_task_prompt.strip():
@@ -428,7 +434,7 @@ async def augment_dataset_gemma(request: AugmentRequest):
 async def preview_uploaded_file(file_path: str):
     """
     Preview the content of an uploaded file (JSON, CSV, or PDF).
-    For CSV and PDF, previews the first 5 rows or pages respectively.
+    Returns a structured response with preview data and total count for pagination.
     """
     if not file_path.startswith("gs://"):
         raise HTTPException(status_code=400, detail="Invalid file path. Must start with gs://")
@@ -446,10 +452,28 @@ async def preview_uploaded_file(file_path: str):
         # Try to load as JSON
         try:
             json_content = json.loads(file_content)
-            # Pretty-print JSON with indentation
-            return json.dumps(json_content, indent=2, ensure_ascii=False)
+            
+            # Check if it's an array of objects (dataset format)
+            if isinstance(json_content, list):
+                # Return structured response for frontend pagination
+                preview_limit = 50  # Show first 50 entries in preview
+                preview_data = json_content[:preview_limit]
+                return {
+                    "preview": preview_data,
+                    "full_count": len(json_content)
+                }
+            else:
+                # For non-array JSON (e.g., single object), return as-is for backward compatibility
+                return {
+                    "preview": [json_content] if json_content else [],
+                    "full_count": 1 if json_content else 0
+                }
         except json.JSONDecodeError:
             # If not JSON, return as plain text (for CSV or PDF text extractions)
-            return file_content
+            # Wrap in a simple structure for consistency
+            return {
+                "preview": [{"content": file_content}],
+                "full_count": 1
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error accessing file: {str(e)}")
