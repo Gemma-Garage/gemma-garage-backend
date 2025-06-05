@@ -436,8 +436,11 @@ async def preview_uploaded_file(file_path: str = Query(..., alias="path")):
     Preview the content of an uploaded file (JSON, CSV, or PDF).
     Returns a structured response with preview data and total count for pagination.
     """
+
     if not file_path.startswith("gs://"):
-        raise HTTPException(status_code=400, detail="Invalid file path. Must start with gs://")
+        file_path = f"gs://{NEW_DATA_BUCKET}/{file_path}"  # Ensure it starts with gs://
+
+    print(file_path)
 
     storage_client = storage.Client()
     
