@@ -289,6 +289,7 @@ async def generate_synthetic_dataset_with_gemini(
     Start the JSON array with the tag <json_dataset> and do not write this tag anywhere else.
     Make sure you don't leave any json unfinished. The dataset json should contain a key "text", and 
     follow a chat template in which user and model messages are separated by a <start_of_turn>user, <start_of_turn>model, and <end_of_turn>model, and <end_of_turn> tags.
+    Replace Instruction: with <start_of_turn>user and Output (or response, or equivalente): with <start_of_turn>model. Finish each turn with <end_of_turn>model or <end_of_turn>user.
     """
 
     generation_config = genai.types.GenerationConfig(
