@@ -287,7 +287,8 @@ async def generate_synthetic_dataset_with_gemini(
     Please generate {num_examples_to_generate} new examples in the same JSON format as the extract provided.
     Ensure each example is a complete JSON object. Output the examples as a JSON array.
     Start the JSON array with the tag <json_dataset> and do not write this tag anywhere else.
-    Make sure you don't leave any json unfinished.
+    Make sure you don't leave any json unfinished. The dataset json should contain a key "text", and 
+    follow a chat template in which user and model messages are separated by a <start_of_turn>user, <start_of_turn>model, and <end_of_turn>model, and <end_of_turn> tags.
     """
 
     generation_config = genai.types.GenerationConfig(
