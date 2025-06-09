@@ -28,20 +28,20 @@ async def train_model(request: FinetuneJobRequest):
     request_id = str(uuid.uuid4())
     try:
         print(f"Received training request: {request.model_dump()}, assigning request_id: {request_id}")
-        # submit_finetuning_job(
-        #     model_name=request.model_name,
-        #     dataset_path=request.dataset_path, # Should be just the filename
-        #     epochs=request.epochs,
-        #     learning_rate=request.learning_rate,
-        #     lora_rank=request.lora_rank,
-        #     request_id=request_id
-        # )
-        run_vertexai_job(model_name=request.model_name,
+        submit_finetuning_job(
+            model_name=request.model_name,
             dataset_path=request.dataset_path, # Should be just the filename
             epochs=request.epochs,
             learning_rate=request.learning_rate,
             lora_rank=request.lora_rank,
-            request_id=request_id)
+            request_id=request_id
+        )
+        # run_vertexai_job(model_name=request.model_name,
+        #     dataset_path=request.dataset_path, # Should be just the filename
+        #     epochs=request.epochs,
+        #     learning_rate=request.learning_rate,
+        #     lora_rank=request.lora_rank,
+        #     request_id=request_id)
         return TrainResponse(message="Training job submitted successfully.", request_id=request_id)
     except Exception as e:
         print(f"Error submitting training job for request_id {request_id}: {e}")

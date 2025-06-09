@@ -77,6 +77,7 @@ google-cloud-audit-log==0.3.2
 #google-cloud-bigquery==3.32.0
 google-cloud-core==2.4.3
 google-cloud-logging==3.12.1
+google-cloud-scheduler
 google-cloud-resource-manager==1.14.2
 google-cloud-storage==2.19.0
 google-crc32c==1.7.1
