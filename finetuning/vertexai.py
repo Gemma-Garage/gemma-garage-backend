@@ -1,9 +1,10 @@
-from google.cloud import logging # Keep logging
+from google.cloud import aiplatform, logging
 import ast
 from datetime import datetime, timezone # Ensure timezone is imported
 import json
 import os
 import requests
+import time
 
 # Get bucket names from environment variables
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")
@@ -41,6 +42,51 @@ def submit_finetuning_job(
     else:
         print("Failed to submit job:", response.status_code, response.text)
 
+def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank, request_id: str):
+    # if not all([NEW_DATA_BUCKET, NEW_MODEL_OUTPUT_BUCKET, NEW_STAGING_BUCKET]) or \\
+    #    "your-default" in NEW_DATA_BUCKET:
+    #     print("WARNING: One or more GCS bucket environment variables are not set or are using default placeholder values.")
+
+    aiplatform.init(project=VERTEX_AI_PROJECT,
+                    location=VERTEX_AI_LOCATION,
+                    staging_bucket=NEW_STAGING_BUCKET)
+
+    job_display_name = f"gemma-peft-finetune-job-{request_id[:8]}" # Include part of request_id for easier identification
+
+    # Define labels for the Vertex AI job
+    job_labels = {"gemma_garage_req_id": request_id}
+
+    job = aiplatform.CustomContainerTrainingJob(
+        display_name=job_display_name,
+        container_uri="gcr.io/llm-garage/gemma-finetune:latest",
+        model_serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.1-13:latest", # Optional
+    )
+
+    training_args = [
+        f"--dataset={NEW_DATA_BUCKET}/{dataset_path}",
+        f"--output_dir={NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}", # Unique output dir per request
+        f"--model_name={model_name}",
+        f"--epochs={epochs}",
+        f"--learning_rate={learning_rate}",
+        f"--lora_rank={lora_rank}",
+        f"--request_id={request_id}", # Pass request_id to the training container
+        f"--project_id={VERTEX_AI_PROJECT}"  # Pass project_id for logging
+    ]
+
+    print(f"Submitting training job: {job_display_name} with request_id: {request_id} for project {VERTEX_AI_PROJECT}")
+    job.run(
+        base_output_dir=f"{NEW_MODEL_OUTPUT_BUCKET}/vertex_outputs/{request_id}", # Vertex AI specific outputs, unique per request
+        machine_type="n1-standard-8",
+        accelerator_type="NVIDIA_TESLA_T4",
+        accelerator_count=1,
+        args=training_args,
+        replica_count=1,
+        sync=False, # Run asynchronously
+        service_account=VERTEX_AI_SERVICE_ACCOUNT,
+    )
+    time.sleep(10)
+    print(f"Vertex AI Job {job.display_name} (resource: {job.resource_name}) submitted with labels: {job_labels}")
+    # No need to return job.resource_name if get_logs relies solely on the label for filtering.
 
 def get_logs(
     request_id: str,
@@ -95,7 +141,7 @@ def get_logs(
     # The endpoint handler in finetune.py will then parse this string.
     return extract_loss_from_logs(logs)
 
-# 🧠 Function to parse logs and extract loss values
+#  Function to parse logs and extract loss values
 def extract_loss_from_logs(logs): # logs is a list of {"timestamp": ..., "payload": ...}
     processed_logs = []
     for log_entry in logs:
