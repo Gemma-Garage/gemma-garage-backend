@@ -1,79 +1,43 @@
-# from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-# import torch
-# from transformers import AutoModelForCausalLM, AutoTokenizer
-# from peft import PeftModel
-# import asyncio
-# import concurrent.futures
+import os
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+from google.cloud import storage
 
-# router = APIRouter()
-# executor = concurrent.futures.ThreadPoolExecutor()
+app = FastAPI()
 
-# def load_model_and_tokenizer(model_name: str, weights_path: str):
-#     # Load the tokenizer and base model using the provided model name
-#     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-#     base_model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
-#     # Load fine-tuned adapter weights via PEFT's API
+MODEL_DIR = "/app/model"
+GCS_BUCKET = "llm-garage-models"
+GCS_PREFIX = "gemma-peft-vertex-output/model"
 
-#     # model = PeftModel.from_pretrained(base_model, weights_path)
-#     # model.eval()
-#     # return model, tokenizer
-#     # Load the state dict from the weights file
-#     state_dict = torch.load(weights_path, map_location=torch.device("cpu"))
-    
-#     # Load the state dict into the base model
-#     base_model.load_state_dict(state_dict, strict=False)
-#     base_model.eval()
+class PromptRequest(BaseModel):
+    prompt: str
+    request_id: str
 
-#     return base_model, tokenizer
+def download_model_from_gcs(bucket_name, prefix, local_dir):
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = list(bucket.list_blobs(prefix=prefix))
+    os.makedirs(local_dir, exist_ok=True)
+    for blob in blobs:
+        file_path = os.path.join(local_dir, blob.name.replace(prefix + "/", ""))
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        blob.download_to_filename(file_path)
 
-# def generate_text(prompt: str, model, tokenizer):
-#     inputs = tokenizer(prompt, return_tensors="pt")
-#     outputs = model.generate(
-#         inputs.input_ids,
-#         max_length=20,            
-#         num_return_sequences=1,
-#         do_sample=True,
-#         temperature=0.7            
-#     )
-#     generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-#     return generated_text
+# Download model at startup
 
-# @router.websocket("/ws/test_llm")
-# async def test_llm_ws(websocket: WebSocket):
-#     await websocket.accept()
-#     try:
-#         # Wait for a JSON message containing prompt, model_name, and weights_path
-#         data = await websocket.receive_json()
-#         prompt = data.get("prompt")
-#         model_name = data.get("model_name")
-#         weights_path = data.get("weights_path")
-        
-#         if not prompt or not model_name or not weights_path:
-#             await websocket.send_json({"error": "Prompt, model_name, and weights_path must be provided"})
-#             await websocket.close()
-#             return
+@app.post("/predict")
+def predict(request: PromptRequest):
+    request_id = request.request_id
+    model_path = f"{GCS_PREFIX}/{request_id}/final_model/"
+    if not model_path:
+        model_path = MODEL_DIR
+    download_model_from_gcs(GCS_BUCKET, GCS_PREFIX, MODEL_DIR)
+    # Load model/tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_DIR).to("cuda" if torch.cuda.is_available() else "cpu")
 
-#         loop = asyncio.get_event_loop()
-#         try:
-#             # Offload the model loading to a background thread
-#             model, tokenizer = await loop.run_in_executor(executor, load_model_and_tokenizer, model_name, weights_path)
-#         except Exception as e:
-#             await websocket.send_json({"error": f"Error loading model or weights: {str(e)}"})
-#             await websocket.close()
-#             return
-
-#         try:
-#             # Offload the generation to a background thread
-#             generated_text = await loop.run_in_executor(executor, generate_text, prompt, model, tokenizer)
-#         except Exception as e:
-#             await websocket.send_json({"error": f"Error during generation: {str(e)}"})
-#             await websocket.close()
-#             return
-        
-#         # Send the generated text back to the client
-#         await websocket.send_json({"response": generated_text})
-#     except WebSocketDisconnect:
-#         print("Client disconnected")
-#     except Exception as e:
-#         await websocket.send_json({"error": str(e)})
-#         await websocket.close()
+    inputs = tokenizer(request.prompt, return_tensors="pt").to(model.device)
+    outputs = model.generate(**inputs, max_new_tokens=100)
+    return {"response": tokenizer.decode(outputs[0], skip_special_tokens=True)}
