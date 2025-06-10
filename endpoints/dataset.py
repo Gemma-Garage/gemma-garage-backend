@@ -19,7 +19,7 @@ NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://default-data-bucket") 
 class AugmentRequest(BaseModel):
     dataset_gcs_path: str
     fine_tuning_task_prompt: str
-    model_choice: str = "gemini-1.5-flash"
+    model_choice: str = "gemini-2.5-flash-preview-05-20"
     num_examples_to_generate: int = 50
 
 
@@ -266,7 +266,7 @@ async def generate_synthetic_dataset_with_gemini(
     original_dataset_extract: str,
     fine_tuning_task_prompt: str,
     num_examples_to_generate: int = 50, # Default, can be parameterized
-    model_name: str = "gemini-1.5-flash-latest" # Check for latest recommended model
+    model_name: str = "gemini-2.5-flash-preview-05-20"
 ):
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
     print(f"DEBUG: GEMINI_API_KEY: {gemini_api_key}") # For debugging, remove in production
