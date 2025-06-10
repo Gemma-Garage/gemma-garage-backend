@@ -20,7 +20,7 @@ app.include_router(model.router, prefix="/model", tags=["Model"])
 app.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])
 app.include_router(finetune.router, prefix="/finetune", tags=["Fine-tuning"])
 app.include_router(download.router, prefix="/download", tags=["Download"])
-app.include_router(inference.router, prefix="/inference", tags=["Inference"])
+#app.include_router(inference.router, prefix="/inference", tags=["Inference"])
 
 
 if __name__ == "__main__":

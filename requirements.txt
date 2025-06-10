@@ -55,7 +55,7 @@ starlette==0.46.1
 #tensorboard==2.19.0
 #tensorboard-data-server==0.7.2
 #tokenizers==0.21.0
-torch==2.6.0
+#torch==2.6.0
 #tqdm
 #transformers @ git+https://github.com/huggingface/transformers@46350f5eae87ac1d168ddfdc57a0b39b64b9a029
 #triton==3.2.0
@@ -85,6 +85,6 @@ google-generativeai==0.5.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpc-google-iam-v1==0.14.2
-transformers
+#transformers
 # PDF Processing
 PyMuPDF==1.25.4
