@@ -1,11 +1,11 @@
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, APIRouter
 from pydantic import BaseModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from google.cloud import storage
 
-app = FastAPI()
+router = APIRouter()
 
 MODEL_DIR = "/app/model"
 GCS_BUCKET = "llm-garage-models"
