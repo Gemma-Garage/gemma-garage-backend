@@ -27,7 +27,7 @@ def download_model_from_gcs(bucket_name, prefix, local_dir):
 
 # Download model at startup
 
-@app.post("/predict")
+@router.post("/predict")
 def predict(request: PromptRequest):
     request_id = request.request_id
     model_path = f"{GCS_PREFIX}/{request_id}/final_model/"
