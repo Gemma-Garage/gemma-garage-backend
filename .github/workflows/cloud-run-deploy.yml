@@ -42,7 +42,7 @@ jobs:
             --allow-unauthenticated \
             --memory 4Gi
       
-      #Change policy so service becomes publicly accessible
+      #Change policy so service is publicly accessible
       - name: 'Set IAM Policy for Cloud Run'
         run: |
           gcloud beta run services add-iam-policy-binding \
