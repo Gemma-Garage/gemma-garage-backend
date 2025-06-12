@@ -27,15 +27,6 @@ jobs:
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
       
-      #Change policy so service is publicly accessible
-      - name: 'Set IAM Policy for Cloud Run'
-        run: |
-          gcloud beta run services add-iam-policy-binding \
-            --region=${{ env.REGION }} \
-            --member=allUsers \
-            --role=roles/run.invoker \
-            ${{ env.SERVICE }}
-
       - name: 'Build and Push Docker Image'
         run: |
           gcloud builds submit \
@@ -50,3 +41,12 @@ jobs:
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
             --memory 4Gi
+      
+      #Change policy so service is publicly accessible
+      - name: 'Set IAM Policy for Cloud Run'
+        run: |
+          gcloud beta run services add-iam-policy-binding \
+            --region=${{ env.REGION }} \
+            --member=allUsers \
+            --role=roles/run.invoker \
+            ${{ env.SERVICE }}
