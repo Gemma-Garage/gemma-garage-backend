@@ -135,12 +135,12 @@ def submit_finetuning_job(
     # --- AllocationPolicy: How VMs are provisioned ---
     instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(
     machine_type=machine_type,
-    accelerators=[
-        batch_v1.types.AllocationPolicy.Accelerator(
-            type_="nvidia-l4",
-            count=1
-        )
-    ]
+    # accelerators=[
+    #     batch_v1.types.AllocationPolicy.Accelerator(
+    #         type_="nvidia-l4",
+    #         count=1
+    #     )
+    # ]
     )
     allocation_policy_config = batch_v1.types.AllocationPolicy(
         instances=[batch_v1.types.AllocationPolicy.InstancePolicyOrTemplate(policy=instance_policy)]
