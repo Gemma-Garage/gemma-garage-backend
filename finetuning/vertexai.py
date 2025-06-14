@@ -132,8 +132,7 @@ def submit_finetuning_job(
         memory_mib=memory_mib,
         boot_disk_mib=boot_disk_mib
     )
-    accelerator = batch_v1.types.Accelerator(type_='NVIDIA_TESLA_T4', count=1)
-    compute_resource_config.accelerators.append(accelerator)
+
     logging.info(f"  Machine Type: {machine_type}, CPU: {cpu_milli}m, Memory: {memory_mib}MiB, GPU: 1x NVIDIA_TESLA_T4")
 
     # --- TaskSpec: Defines a single task ---
@@ -147,7 +146,15 @@ def submit_finetuning_job(
     group = batch_v1.types.TaskGroup(task_count=1, task_spec=task)
 
     # --- AllocationPolicy: How VMs are provisioned ---
-    instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(machine_type=machine_type)
+    instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(
+    machine_type=machine_type,
+    accelerators=[
+        batch_v1.types.AllocationPolicy.Accelerator(
+            accelerator_type="nvidia-tesla-t4",
+            count=1
+        )
+    ]
+    )
     allocation_policy_config = batch_v1.types.AllocationPolicy(
         instances=[batch_v1.types.AllocationPolicy.InstancePolicyOrTemplate(policy=instance_policy)]
     )
