@@ -137,7 +137,7 @@ def submit_finetuning_job(
     machine_type=machine_type,
     accelerators=[
         batch_v1.types.AllocationPolicy.Accelerator(
-            type_="nvidia-tesla-t4",
+            type_="nvidia-l4",
             count=1
         )
     ]
