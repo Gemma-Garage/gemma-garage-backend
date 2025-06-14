@@ -68,8 +68,8 @@ def submit_finetuning_job(
     # Docker Image URI
     image_uri = "gcr.io/llm-garage/gemma-finetune:latest" # Using project_id in image path
 
-    # Machine and GPU Configuration for NVIDIA_TESLA_T4
-    machine_type = "n1-standard-4" # 4 vCPUs, 15 GiB RAM. Common for T4.
+    # Machine and GPU Configuration for NVIDIA_L4
+    machine_type = "g2-standard-4"
     cpu_milli = 3500               # Requesting ~3.5 vCPUs
     memory_mib = 14 * 1024         # Requesting 14 GiB (14 * 1024 MiB)
     boot_disk_mib = 100 * 1024     # 100 GiB for the boot disk
