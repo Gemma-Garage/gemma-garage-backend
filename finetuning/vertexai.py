@@ -9,7 +9,6 @@ import time
 import uuid
 import argparse
 import requests
-import logging
 
 
 # Get bucket names from environment variables
@@ -20,7 +19,6 @@ VERTEX_AI_PROJECT = os.environ.get("VERTEX_AI_PROJECT", "llm-garage")
 VERTEX_AI_LOCATION = os.environ.get("VERTEX_AI_LOCATION", "us-central1")
 VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "513913820596-compute@developer.gserviceaccount.com")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # def submit_finetuning_job(
 #     model_name: str,
@@ -88,7 +86,6 @@ def submit_finetuning_job(
 
     if not request_id:
         request_id = f"req-{uuid.uuid4().hex[:8]}"
-    logging.info(f"Received fine-tuning request: {request_id} for model {model_name}")
 
     job_timestamp_suffix = f"{int(time.time())}"
     safe_model_name = model_name.split('/')[-1].replace('.', '-')[:20]
@@ -98,12 +95,6 @@ def submit_finetuning_job(
 
     full_dataset_gcs_path = f"{new_data_bucket.rstrip('/')}/{dataset_path.lstrip('/')}"
     output_dir_for_job = f"{new_model_output_bucket.rstrip('/')}/model_outputs/{model_name.replace('/', '_')}/{request_id}"
-
-    logging.info(f"Submitting Batch job with ID: {job_id}")
-    logging.info(f"  Project: {gcp_project_id}, Region: {gcp_region}")
-    logging.info(f"  Image URI: {image_uri}")
-    logging.info(f"  Dataset: {full_dataset_gcs_path}")
-    logging.info(f"  Output Dir: {output_dir_for_job}")
 
     # --- Environment Variables for the container ---
     env_vars = {
@@ -118,13 +109,11 @@ def submit_finetuning_job(
     }
     if hf_token_runtime:
         env_vars["HF_TOKEN"] = hf_token_runtime
-        logging.info("  HF_TOKEN (runtime) will be provided to the container.")
 
     # --- Runnable: Defines the container to run ---
     runnable = batch_v1.types.Runnable()
     runnable.container = batch_v1.types.Runnable.Container(image_uri=image_uri)
     runnable.environment = batch_v1.types.Environment(variables=env_vars)
-    logging.debug(f"Task environment variables: {env_vars}")
 
     # --- ComputeResource: CPU, Memory, GPU ---
     compute_resource_config = batch_v1.types.ComputeResource(
@@ -132,8 +121,6 @@ def submit_finetuning_job(
         memory_mib=memory_mib,
         boot_disk_mib=boot_disk_mib
     )
-
-    logging.info(f"  Machine Type: {machine_type}, CPU: {cpu_milli}m, Memory: {memory_mib}MiB, GPU: 1x NVIDIA_TESLA_T4")
 
     # --- TaskSpec: Defines a single task ---
     task = batch_v1.types.TaskSpec(
@@ -160,10 +147,7 @@ def submit_finetuning_job(
     )
     if batch_job_sa_email:
         allocation_policy_config.service_account = batch_v1.types.ServiceAccount(email=batch_job_sa_email)
-        logging.info(f"  Batch job VMs will use SA: {batch_job_sa_email}")
-    else:
-        logging.info("  Batch job VMs will use default Compute Engine SA.")
-
+    
     # --- Job: The overall Batch job definition ---
     job_definition = batch_v1.types.Job(
         task_groups=[group],
@@ -182,13 +166,9 @@ def submit_finetuning_job(
     )
 
     try:
-        logging.info(f"Attempting to submit Batch job '{job_id}'...")
         created_job = batch_client.create_job(request=create_request)
-        logging.info(f"Successfully submitted Batch job: {created_job.name}")
-        logging.info(f"  Track job status: https://console.cloud.google.com/batch/jobs/detail/{gcp_region}/{job_id}?project={gcp_project_id}")
         return created_job
     except Exception as e:
-        logging.error(f"Error submitting batch job '{job_id}': {e}", exc_info=True)
         raise
 
 # def submit_finetuning_job(
