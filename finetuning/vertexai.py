@@ -1,10 +1,16 @@
 from google.cloud import aiplatform, logging
 import ast
 from datetime import datetime, timezone # Ensure timezone is imported
+from google.cloud import batch_v1
+from google.protobuf.duration_pb2 import Duration
 import json
 import os
-import requests
 import time
+import uuid
+import argparse
+import requests
+import logging
+
 
 # Get bucket names from environment variables
 NEW_DATA_BUCKET = os.environ.get("NEW_DATA_BUCKET", "gs://your-default-data-bucket")
@@ -13,6 +19,8 @@ NEW_STAGING_BUCKET = os.environ.get("NEW_STAGING_BUCKET", "gs://your-default-sta
 VERTEX_AI_PROJECT = os.environ.get("VERTEX_AI_PROJECT", "llm-garage")
 VERTEX_AI_LOCATION = os.environ.get("VERTEX_AI_LOCATION", "us-central1")
 VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "513913820596-compute@developer.gserviceaccount.com")
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # def submit_finetuning_job(
 #     model_name: str,
@@ -50,26 +58,160 @@ def submit_finetuning_job(
     lora_rank: int = 4,
     request_id: str = None):
 
-    output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
-    project_id= VERTEX_AI_PROJECT
-    url = "https://llm-garage-finetune-513913820596.us-central1.run.app/run-finetune-job"
-    payload = {
-    "dataset": f"{NEW_DATA_BUCKET}/{dataset_path}",
-    "output_dir": output_dir,
-    "model_name": model_name,
-    "epochs": epochs,
-    "learning_rate": learning_rate,
-    "lora_rank": lora_rank,
-    "request_id": request_id,
-    "project_id": project_id
-    }
-    
-    response = requests.post(url, json=payload)
+# --- Hardcoded Infrastructure & Configuration Parameters (INSIDE FUNCTION) ---
+    gcp_project_id = "llm-garage"  # Your Google Cloud Project ID
+    gcp_region = "us-central1"     # The region to run Batch jobs in
 
-    if response.status_code == 200:
-        print("Job submitted successfully:", response.json())
+    # GCS Bucket Paths (ensure these buckets exist and have correct permissions)
+    # REPLACE THESE WITH YOUR ACTUAL BUCKET NAMES
+    new_model_output_bucket = "gs://your-llm-garage-output-bucket"
+    new_data_bucket = "gs://your-llm-garage-data-bucket"
+
+    # Docker Image URI
+    image_uri = "gcr.io/llm-garage/gemma-finetune:latest" # Using project_id in image path
+
+    # Machine and GPU Configuration for NVIDIA_TESLA_T4
+    machine_type = "n1-standard-4" # 4 vCPUs, 15 GiB RAM. Common for T4.
+    cpu_milli = 3500               # Requesting ~3.5 vCPUs
+    memory_mib = 14 * 1024         # Requesting 14 GiB (14 * 1024 MiB)
+    boot_disk_mib = 100 * 1024     # 100 GiB for the boot disk
+    max_run_duration_seconds = 4 * 3600 # 4 hours job timeout
+
+    # Optional: Service account for the Batch VMs. If None, uses default GCE SA.
+    # batch_job_sa_email = "my-batch-vm-sa@llm-garage.iam.gserviceaccount.com" # Uncomment and set if needed
+    batch_job_sa_email = None
+
+    # Optional: Hugging Face token if needed at runtime by the training script
+    # hf_token_runtime = "hf_yourHuggingFaceToken" # Uncomment and set if needed
+    hf_token_runtime = None
+    # --- End of Hardcoded Parameters ---
+
+    if not request_id:
+        request_id = f"req-{uuid.uuid4().hex[:8]}"
+    logging.info(f"Received fine-tuning request: {request_id} for model {model_name}")
+
+    job_timestamp_suffix = f"{int(time.time())}"
+    safe_model_name = model_name.split('/')[-1].replace('.', '-')[:20]
+    job_id = f"{safe_model_name}-{request_id[:15]}-{job_timestamp_suffix}"[:63].lower()
+
+    batch_client = batch_v1.BatchServiceClient()
+
+    full_dataset_gcs_path = f"{new_data_bucket.rstrip('/')}/{dataset_path.lstrip('/')}"
+    output_dir_for_job = f"{new_model_output_bucket.rstrip('/')}/model_outputs/{model_name.replace('/', '_')}/{request_id}"
+
+    logging.info(f"Submitting Batch job with ID: {job_id}")
+    logging.info(f"  Project: {gcp_project_id}, Region: {gcp_region}")
+    logging.info(f"  Image URI: {image_uri}")
+    logging.info(f"  Dataset: {full_dataset_gcs_path}")
+    logging.info(f"  Output Dir: {output_dir_for_job}")
+
+    # --- Environment Variables for the container ---
+    env_vars = {
+        "DATASET": full_dataset_gcs_path,
+        "OUTPUT_DIR": output_dir_for_job,
+        "MODEL_NAME": model_name,
+        "EPOCHS": str(epochs),
+        "LEARNING_RATE": str(learning_rate),
+        "LORA_RANK": str(lora_rank),
+        "REQUEST_ID": request_id,
+        "PROJECT_ID": gcp_project_id # Pass the hardcoded project_id to the container
+    }
+    if hf_token_runtime:
+        env_vars["HF_TOKEN"] = hf_token_runtime
+        logging.info("  HF_TOKEN (runtime) will be provided to the container.")
+
+    # --- Runnable: Defines the container to run ---
+    runnable = batch_v1.types.Runnable()
+    runnable.container = batch_v1.types.Runnable.Container(image_uri=image_uri)
+    runnable.environment = batch_v1.types.Environment(variables=env_vars)
+    logging.debug(f"Task environment variables: {env_vars}")
+
+    # --- ComputeResource: CPU, Memory, GPU ---
+    compute_resource_config = batch_v1.types.ComputeResource(
+        cpu_milli=cpu_milli,
+        memory_mib=memory_mib,
+        boot_disk_mib=boot_disk_mib
+    )
+    accelerator = batch_v1.types.Accelerator(type_='NVIDIA_TESLA_T4', count=1)
+    compute_resource_config.accelerators.append(accelerator)
+    logging.info(f"  Machine Type: {machine_type}, CPU: {cpu_milli}m, Memory: {memory_mib}MiB, GPU: 1x NVIDIA_TESLA_T4")
+
+    # --- TaskSpec: Defines a single task ---
+    task = batch_v1.types.TaskSpec(
+        runnables=[runnable],
+        compute_resource=compute_resource_config,
+        max_run_duration=Duration(seconds=max_run_duration_seconds)
+    )
+
+    # --- TaskGroup: A group of identical tasks ---
+    group = batch_v1.types.TaskGroup(task_count=1, task_spec=task)
+
+    # --- AllocationPolicy: How VMs are provisioned ---
+    instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(machine_type=machine_type)
+    allocation_policy_config = batch_v1.types.AllocationPolicy(
+        instances=[batch_v1.types.AllocationPolicy.InstancePolicyOrTemplate(policy=instance_policy)]
+    )
+    if batch_job_sa_email:
+        allocation_policy_config.service_account = batch_v1.types.ServiceAccount(email=batch_job_sa_email)
+        logging.info(f"  Batch job VMs will use SA: {batch_job_sa_email}")
     else:
-        print("Failed to submit job:", response.status_code, response.text)
+        logging.info("  Batch job VMs will use default Compute Engine SA.")
+
+    # --- Job: The overall Batch job definition ---
+    job_definition = batch_v1.types.Job(
+        task_groups=[group],
+        allocation_policy=allocation_policy_config,
+        labels={"job-type": "finetuning", "model-id": model_name.replace("/", "-")[:30], "req-id": request_id[:20]},
+        logs_policy=batch_v1.types.LogsPolicy(
+            destination=batch_v1.types.LogsPolicy.Destination.CLOUD_LOGGING
+        )
+    )
+
+    # --- CreateJobRequest ---
+    create_request = batch_v1.types.CreateJobRequest(
+        parent=f"projects/{gcp_project_id}/locations/{gcp_region}",
+        job_id=job_id,
+        job=job_definition,
+    )
+
+    try:
+        logging.info(f"Attempting to submit Batch job '{job_id}'...")
+        created_job = batch_client.create_job(request=create_request)
+        logging.info(f"Successfully submitted Batch job: {created_job.name}")
+        logging.info(f"  Track job status: https://console.cloud.google.com/batch/jobs/detail/{gcp_region}/{job_id}?project={gcp_project_id}")
+        return created_job
+    except Exception as e:
+        logging.error(f"Error submitting batch job '{job_id}': {e}", exc_info=True)
+        raise
+
+# def submit_finetuning_job(
+#     model_name: str,
+#     dataset_path: str,
+#     epochs: int,
+#     learning_rate: float,
+#     lora_rank: int = 4,
+#     request_id: str = None):
+
+#     output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
+#     project_id= VERTEX_AI_PROJECT
+#     url = "https://llm-garage-finetune-513913820596.us-central1.run.app/run-finetune-job"
+#     payload = {
+#     "dataset": f"{NEW_DATA_BUCKET}/{dataset_path}",
+#     "output_dir": output_dir,
+#     "model_name": model_name,
+#     "epochs": epochs,
+#     "learning_rate": learning_rate,
+#     "lora_rank": lora_rank,
+#     "request_id": request_id,
+#     "project_id": project_id
+#     }
+    
+#     response = requests.post(url, json=payload)
+
+#     if response.status_code == 200:
+#         print("Job submitted successfully:", response.json())
+#     else:
+#         print("Failed to submit job:", response.status_code, response.text)
 
 
 def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank, request_id: str):
