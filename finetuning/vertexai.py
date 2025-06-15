@@ -71,21 +71,15 @@ def submit_finetuning_job(
     }
 
     body = {
-        "execution": {
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": [
-                            {
-                                "args": args_list
-                            }
-                        ]
-                    }
+        "overrides": {
+            "containerOverrides": [
+                {
+                    "args": args_list
                 }
-            }
+            ]
         }
     }
-        
+
     response = requests.post(url, headers=headers, data=json.dumps(body))
 
     if response.status_code == 200:
