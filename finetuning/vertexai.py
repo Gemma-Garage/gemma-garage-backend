@@ -69,12 +69,8 @@ def submit_finetuning_job(
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-
-    body = {}
-    if args:
-        body["args"] = args
     
-    response = requests.post(url, headers=headers, data=json.dumps(body))
+    response = requests.post(url, headers=headers, json=args)
 
     if response.status_code == 200:
         print("✅ Job triggered successfully.")
