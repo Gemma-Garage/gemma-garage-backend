@@ -10,6 +10,8 @@ import uuid
 import argparse
 import requests
 import subprocess
+import google.auth
+import google.auth.transport.requests
 
 
 # Get bucket names from environment variables
@@ -53,14 +55,33 @@ def submit_finetuning_job(
         "--wait",
         "--args=" + ",".join(args_list)
     ]
+
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    credentials.refresh(google.auth.transport.requests.Request())
+    access_token = credentials.token
+
+    url = (
+        f"https://{region}-run.googleapis.com/apis/run.googleapis.com/"
+        f"v1/namespaces/{project_id}/jobs/{job_name}:run"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    body = {}
+    if args:
+        body["args"] = args
     
-    try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-        print("Job executed successfully.")
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print("Error executing job:")
-        print(e.stderr)
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+
+    if response.status_code == 200:
+        print("✅ Job triggered successfully.")
+        print(response.json())
+    else:
+        print("❌ Failed to trigger job:")
+        print(response.status_code, response.text)
 
 # def submit_finetuning_job(
 #     model_name: str,
