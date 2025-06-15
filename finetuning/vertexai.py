@@ -9,6 +9,7 @@ import time
 import uuid
 import argparse
 import requests
+import subprocess
 
 
 # Get bucket names from environment variables
@@ -19,6 +20,47 @@ VERTEX_AI_PROJECT = os.environ.get("VERTEX_AI_PROJECT", "llm-garage")
 VERTEX_AI_LOCATION = os.environ.get("VERTEX_AI_LOCATION", "us-central1")
 VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "513913820596-compute@developer.gserviceaccount.com")
 
+
+def submit_finetuning_job(
+    model_name: str,
+    dataset_path: str,
+    epochs: int,
+    learning_rate: float,
+    lora_rank: int = 4,
+    request_id: str = None):
+
+    job_name = "llm-garage-finetune"
+    project_id = "llm-garage"
+    region = "us-central1"
+    output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
+
+    args = {
+    "dataset": f"{NEW_DATA_BUCKET}/{dataset_path}",
+    "output_dir": output_dir,
+    "model_name": model_name,
+    "epochs": epochs,
+    "learning_rate": learning_rate,
+    "lora_rank": lora_rank,
+    "request_id": request_id,
+    "project_id": project_id
+    }
+    args_list = [f"--{key}={value}" for key, value in args.items() if value is not None]
+
+    command = [
+        "gcloud", "beta", "run", "jobs", "execute", job_name,
+        "--project", project_id,
+        "--region", region,
+        "--wait",
+        "--args=" + ",".join(args_list)
+    ]
+    
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        print("Job executed successfully.")
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print("Error executing job:")
+        print(e.stderr)
 
 # def submit_finetuning_job(
 #     model_name: str,
@@ -48,128 +90,128 @@ VERTEX_AI_SERVICE_ACCOUNT = os.environ.get("VERTEX_AI_SERVICE_ACCOUNT", "5139138
 #     else:
 #         print("Failed to submit job:", response.status_code, response.text)
 
-def submit_finetuning_job(
-    model_name: str,
-    dataset_path: str,
-    epochs: int,
-    learning_rate: float,
-    lora_rank: int = 4,
-    request_id: str = None):
+# def submit_finetuning_job(
+#     model_name: str,
+#     dataset_path: str,
+#     epochs: int,
+#     learning_rate: float,
+#     lora_rank: int = 4,
+#     request_id: str = None):
 
-# --- Hardcoded Infrastructure & Configuration Parameters (INSIDE FUNCTION) ---
-    gcp_project_id = "llm-garage"  # Your Google Cloud Project ID
-    gcp_region = "us-central1"     # The region to run Batch jobs in
+# # --- Hardcoded Infrastructure & Configuration Parameters (INSIDE FUNCTION) ---
+#     gcp_project_id = "llm-garage"  # Your Google Cloud Project ID
+#     gcp_region = "us-central1"     # The region to run Batch jobs in
 
-    # GCS Bucket Paths (ensure these buckets exist and have correct permissions)
-    # REPLACE THESE WITH YOUR ACTUAL BUCKET NAMES
-    new_model_output_bucket = "gs://your-llm-garage-output-bucket"
-    new_data_bucket = "gs://your-llm-garage-data-bucket"
+#     # GCS Bucket Paths (ensure these buckets exist and have correct permissions)
+#     # REPLACE THESE WITH YOUR ACTUAL BUCKET NAMES
+#     new_model_output_bucket = "gs://your-llm-garage-output-bucket"
+#     new_data_bucket = "gs://your-llm-garage-data-bucket"
 
-    # Docker Image URI
-    image_uri = "gcr.io/llm-garage/gemma-finetune:latest" # Using project_id in image path
+#     # Docker Image URI
+#     image_uri = "gcr.io/llm-garage/gemma-finetune:latest" # Using project_id in image path
 
-    # Machine and GPU Configuration for NVIDIA_L4
-    machine_type = "g2-standard-4"
-    cpu_milli = 3500               # Requesting ~3.5 vCPUs
-    memory_mib = 14 * 1024         # Requesting 14 GiB (14 * 1024 MiB)
-    boot_disk_mib = 100 * 1024     # 100 GiB for the boot disk
-    max_run_duration_seconds = 4 * 3600 # 4 hours job timeout
+#     # Machine and GPU Configuration for NVIDIA_L4
+#     machine_type = "g2-standard-4"
+#     cpu_milli = 3500               # Requesting ~3.5 vCPUs
+#     memory_mib = 14 * 1024         # Requesting 14 GiB (14 * 1024 MiB)
+#     boot_disk_mib = 100 * 1024     # 100 GiB for the boot disk
+#     max_run_duration_seconds = 4 * 3600 # 4 hours job timeout
 
-    # Optional: Service account for the Batch VMs. If None, uses default GCE SA.
-    # batch_job_sa_email = "my-batch-vm-sa@llm-garage.iam.gserviceaccount.com" # Uncomment and set if needed
-    batch_job_sa_email = None
+#     # Optional: Service account for the Batch VMs. If None, uses default GCE SA.
+#     # batch_job_sa_email = "my-batch-vm-sa@llm-garage.iam.gserviceaccount.com" # Uncomment and set if needed
+#     batch_job_sa_email = None
 
-    # Optional: Hugging Face token if needed at runtime by the training script
-    # hf_token_runtime = "hf_yourHuggingFaceToken" # Uncomment and set if needed
-    hf_token_runtime = None
-    # --- End of Hardcoded Parameters ---
+#     # Optional: Hugging Face token if needed at runtime by the training script
+#     # hf_token_runtime = "hf_yourHuggingFaceToken" # Uncomment and set if needed
+#     hf_token_runtime = None
+#     # --- End of Hardcoded Parameters ---
 
-    if not request_id:
-        request_id = f"req-{uuid.uuid4().hex[:8]}"
+#     if not request_id:
+#         request_id = f"req-{uuid.uuid4().hex[:8]}"
 
-    job_timestamp_suffix = f"{int(time.time())}"
-    safe_model_name = model_name.split('/')[-1].replace('.', '-')[:20]
-    job_id = f"{safe_model_name}-{request_id[:15]}-{job_timestamp_suffix}"[:63].lower()
+#     job_timestamp_suffix = f"{int(time.time())}"
+#     safe_model_name = model_name.split('/')[-1].replace('.', '-')[:20]
+#     job_id = f"{safe_model_name}-{request_id[:15]}-{job_timestamp_suffix}"[:63].lower()
 
-    batch_client = batch_v1.BatchServiceClient()
+#     batch_client = batch_v1.BatchServiceClient()
 
-    full_dataset_gcs_path = f"{new_data_bucket.rstrip('/')}/{dataset_path.lstrip('/')}"
-    output_dir_for_job = f"{new_model_output_bucket.rstrip('/')}/model_outputs/{model_name.replace('/', '_')}/{request_id}"
+#     full_dataset_gcs_path = f"{new_data_bucket.rstrip('/')}/{dataset_path.lstrip('/')}"
+#     output_dir_for_job = f"{new_model_output_bucket.rstrip('/')}/model_outputs/{model_name.replace('/', '_')}/{request_id}"
 
-    # --- Environment Variables for the container ---
-    env_vars = {
-        "DATASET": full_dataset_gcs_path,
-        "OUTPUT_DIR": output_dir_for_job,
-        "MODEL_NAME": model_name,
-        "EPOCHS": str(epochs),
-        "LEARNING_RATE": str(learning_rate),
-        "LORA_RANK": str(lora_rank),
-        "REQUEST_ID": request_id,
-        "PROJECT_ID": gcp_project_id # Pass the hardcoded project_id to the container
-    }
-    if hf_token_runtime:
-        env_vars["HF_TOKEN"] = hf_token_runtime
+#     # --- Environment Variables for the container ---
+#     env_vars = {
+#         "DATASET": full_dataset_gcs_path,
+#         "OUTPUT_DIR": output_dir_for_job,
+#         "MODEL_NAME": model_name,
+#         "EPOCHS": str(epochs),
+#         "LEARNING_RATE": str(learning_rate),
+#         "LORA_RANK": str(lora_rank),
+#         "REQUEST_ID": request_id,
+#         "PROJECT_ID": gcp_project_id # Pass the hardcoded project_id to the container
+#     }
+#     if hf_token_runtime:
+#         env_vars["HF_TOKEN"] = hf_token_runtime
 
-    # --- Runnable: Defines the container to run ---
-    runnable = batch_v1.types.Runnable()
-    runnable.container = batch_v1.types.Runnable.Container(image_uri=image_uri)
-    runnable.environment = batch_v1.types.Environment(variables=env_vars)
+#     # --- Runnable: Defines the container to run ---
+#     runnable = batch_v1.types.Runnable()
+#     runnable.container = batch_v1.types.Runnable.Container(image_uri=image_uri)
+#     runnable.environment = batch_v1.types.Environment(variables=env_vars)
 
-    # --- ComputeResource: CPU, Memory, GPU ---
-    compute_resource_config = batch_v1.types.ComputeResource(
-        cpu_milli=cpu_milli,
-        memory_mib=memory_mib,
-        boot_disk_mib=boot_disk_mib
-    )
+#     # --- ComputeResource: CPU, Memory, GPU ---
+#     compute_resource_config = batch_v1.types.ComputeResource(
+#         cpu_milli=cpu_milli,
+#         memory_mib=memory_mib,
+#         boot_disk_mib=boot_disk_mib
+#     )
 
-    # --- TaskSpec: Defines a single task ---
-    task = batch_v1.types.TaskSpec(
-        runnables=[runnable],
-        compute_resource=compute_resource_config,
-        max_run_duration=Duration(seconds=max_run_duration_seconds)
-    )
+#     # --- TaskSpec: Defines a single task ---
+#     task = batch_v1.types.TaskSpec(
+#         runnables=[runnable],
+#         compute_resource=compute_resource_config,
+#         max_run_duration=Duration(seconds=max_run_duration_seconds)
+#     )
 
-    # --- TaskGroup: A group of identical tasks ---
-    group = batch_v1.types.TaskGroup(task_count=1, task_spec=task)
+#     # --- TaskGroup: A group of identical tasks ---
+#     group = batch_v1.types.TaskGroup(task_count=1, task_spec=task)
 
-    # --- AllocationPolicy: How VMs are provisioned ---
-    instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(
-    machine_type=machine_type,
-    # accelerators=[
-    #     batch_v1.types.AllocationPolicy.Accelerator(
-    #         type_="nvidia-l4",
-    #         count=1
-    #     )
-    # ]
-    )
-    allocation_policy_config = batch_v1.types.AllocationPolicy(
-        instances=[batch_v1.types.AllocationPolicy.InstancePolicyOrTemplate(policy=instance_policy)]
-    )
-    if batch_job_sa_email:
-        allocation_policy_config.service_account = batch_v1.types.ServiceAccount(email=batch_job_sa_email)
+#     # --- AllocationPolicy: How VMs are provisioned ---
+#     instance_policy = batch_v1.types.AllocationPolicy.InstancePolicy(
+#     machine_type=machine_type,
+#     # accelerators=[
+#     #     batch_v1.types.AllocationPolicy.Accelerator(
+#     #         type_="nvidia-l4",
+#     #         count=1
+#     #     )
+#     # ]
+#     )
+#     allocation_policy_config = batch_v1.types.AllocationPolicy(
+#         instances=[batch_v1.types.AllocationPolicy.InstancePolicyOrTemplate(policy=instance_policy)]
+#     )
+#     if batch_job_sa_email:
+#         allocation_policy_config.service_account = batch_v1.types.ServiceAccount(email=batch_job_sa_email)
     
-    # --- Job: The overall Batch job definition ---
-    job_definition = batch_v1.types.Job(
-        task_groups=[group],
-        allocation_policy=allocation_policy_config,
-        labels={"job-type": "finetuning", "model-id": model_name.replace("/", "-")[:30], "req-id": request_id[:20]},
-        logs_policy=batch_v1.types.LogsPolicy(
-            destination=batch_v1.types.LogsPolicy.Destination.CLOUD_LOGGING
-        )
-    )
+#     # --- Job: The overall Batch job definition ---
+#     job_definition = batch_v1.types.Job(
+#         task_groups=[group],
+#         allocation_policy=allocation_policy_config,
+#         labels={"job-type": "finetuning", "model-id": model_name.replace("/", "-")[:30], "req-id": request_id[:20]},
+#         logs_policy=batch_v1.types.LogsPolicy(
+#             destination=batch_v1.types.LogsPolicy.Destination.CLOUD_LOGGING
+#         )
+#     )
 
-    # --- CreateJobRequest ---
-    create_request = batch_v1.types.CreateJobRequest(
-        parent=f"projects/{gcp_project_id}/locations/{gcp_region}",
-        job_id=job_id,
-        job=job_definition,
-    )
+#     # --- CreateJobRequest ---
+#     create_request = batch_v1.types.CreateJobRequest(
+#         parent=f"projects/{gcp_project_id}/locations/{gcp_region}",
+#         job_id=job_id,
+#         job=job_definition,
+#     )
 
-    try:
-        created_job = batch_client.create_job(request=create_request)
-        return created_job
-    except Exception as e:
-        raise
+#     try:
+#         created_job = batch_client.create_job(request=create_request)
+#         return created_job
+#     except Exception as e:
+#         raise
 
 # def submit_finetuning_job(
 #     model_name: str,
