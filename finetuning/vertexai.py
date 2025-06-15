@@ -69,8 +69,24 @@ def submit_finetuning_job(
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
-    response = requests.post(url, headers=headers, json=args)
+
+    body = {
+        "execution": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "args": args_list
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+        
+    response = requests.post(url, headers=headers, data=json.dumps(body))
 
     if response.status_code == 200:
         print("✅ Job triggered successfully.")
