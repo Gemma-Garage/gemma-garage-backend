@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from google.cloud import storage
 from datetime import timedelta
 import os
@@ -133,4 +133,8 @@ async def download_weights_zip(request: Request):
             zipf.writestr(arcname, file_data)
     zip_buffer.seek(0)
 
-    return FileResponse(zip_buffer, media_type="application/zip", filename=f"model_{request_id}.zip")
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=model_{request_id}.zip"}
+    )
