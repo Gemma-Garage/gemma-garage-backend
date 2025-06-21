@@ -8,6 +8,7 @@ import zipfile
 
 router = APIRouter()
 
+#parse gcs path utility function
 def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
     """Parses a GCS path (gs://bucket/prefix/object) into bucket_name and object_prefix."""
     if not gcs_path.startswith("gs://"):
