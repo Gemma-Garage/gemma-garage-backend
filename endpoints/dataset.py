@@ -10,6 +10,7 @@ from utils.file_handler import save_uploaded_file
 import google.generativeai as genai
 from google.cloud import storage
 import uuid
+import requests
 
 router = APIRouter()
 
@@ -482,3 +483,48 @@ async def preview_uploaded_file(file_path: str = Query(..., alias="path")):
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error accessing file: {str(e)}")
+
+@router.post("/augment-unified")
+async def augment_unified(request: AugmentRequest):
+    """
+    Unified augmentation endpoint: if the file is JSON, use the local Gemma augmentation logic;
+    otherwise, call the remote synthetic-data-kit augmentation service. Output naming is consistent.
+    """
+    # Determine file extension
+    _, file_extension = os.path.splitext(request.dataset_gcs_path)
+    file_extension = file_extension.lower()
+
+    # Always get the base file name for consistent naming
+    base_file_name = os.path.basename(request.dataset_gcs_path)
+    output_augmented_name = base_file_name.replace('.json', '_augmented.json').replace('.pdf', '_augmented.json')
+
+    if file_extension == '.json':
+        # Use the existing Gemma augmentation logic (reuse augment_dataset_gemma)
+        result = await augment_dataset_gemma(request)
+        # Rename the file in GCS if needed for consistency
+        storage_client = storage.Client()
+        bucket_name, blob_name = result["augmented_dataset_gcs_path"].replace("gs://", "").split("/", 1)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        # Copy to new consistent name if not already
+        if not blob_name.endswith('_augmented.json'):
+            new_blob_name = output_augmented_name
+            new_blob = bucket.copy_blob(blob, bucket, new_blob_name)
+            blob.delete()
+            augmented_gcs_path = f"gs://{bucket_name}/{new_blob_name}"
+        else:
+            augmented_gcs_path = result["augmented_dataset_gcs_path"]
+        return {"message": "Dataset augmented successfully", "augmented_file_location": augmented_gcs_path}
+    else:
+        # Call remote augmentation service for non-JSON files
+        remote_url = "https://llm-garage-augmentation-513913820596.us-central1.run.app/augment/"
+        response = requests.post(
+            remote_url,
+            json={"file_name": base_file_name},
+            timeout=600
+        )
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Remote augmentation failed: {response.text}")
+        # The augmentation service uploads the file as {original_file_name}_augmented.json
+        augmented_gcs_path = f"{NEW_DATA_BUCKET}/{output_augmented_name}"
+        return {"message": "Non-JSON dataset augmented successfully", "augmented_file_location": augmented_gcs_path}
