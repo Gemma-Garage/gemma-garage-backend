@@ -497,7 +497,12 @@ async def augment_unified(request: AugmentRequest):
             augmented_gcs_path = f"gs://{bucket_name}/{new_blob_name}"
         else:
             augmented_gcs_path = result["augmented_dataset_gcs_path"]
-        return {"message": "Dataset augmented successfully", "augmented_file_location": augmented_gcs_path}
+        # Load preview for frontend
+        preview_data = result.get("preview_augmented_data", {})
+        return {
+            "augmented_dataset_gcs_path": augmented_gcs_path,
+            "preview_augmented_data": preview_data
+        }
     else:
         # Call remote augmentation service for non-JSON files
         remote_url = "https://llm-garage-augmentation-513913820596.us-central1.run.app/augment/"
@@ -508,6 +513,36 @@ async def augment_unified(request: AugmentRequest):
         )
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail=f"Remote augmentation failed: {response.text}")
-        # The augmentation service uploads the file as {original_file_name}_augmented.json
         augmented_gcs_path = f"{NEW_DATA_BUCKET}/{output_augmented_name}"
-        return {"message": "Non-JSON dataset augmented successfully", "augmented_file_location": augmented_gcs_path}
+        # Download the augmented file from GCS and adapt preview for frontend
+        storage_client = storage.Client()
+        bucket_name, blob_name = augmented_gcs_path.replace("gs://", "").split("/", 1)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        file_content = blob.download_as_text(encoding='utf-8')
+        try:
+            data = json.loads(file_content)
+        except Exception:
+            data = {}
+        # Adapt preview for frontend
+        preview = []
+        full_count = 0
+        summary = data.get("summary") if isinstance(data, dict) else None
+        if isinstance(data, list):
+            preview = data[:15]
+            full_count = len(data)
+        elif isinstance(data, dict):
+            if "qa_pairs" in data and isinstance(data["qa_pairs"], list):
+                preview = data["qa_pairs"][:15]
+                full_count = len(data["qa_pairs"])
+            elif "data" in data and isinstance(data["data"], list):
+                preview = data["data"][:15]
+                full_count = len(data["data"])
+        return {
+            "augmented_dataset_gcs_path": augmented_gcs_path,
+            "preview_augmented_data": {
+                "preview": preview,
+                "full_count": full_count
+            },
+            **({"summary": summary} if summary else {})
+        }
