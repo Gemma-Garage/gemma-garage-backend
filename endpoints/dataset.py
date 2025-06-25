@@ -26,30 +26,13 @@ class AugmentRequest(BaseModel):
 
 @router.post("/upload")
 async def upload_dataset(file: UploadFile = File(...)):
-    # Save the file using a utility function
+    # Save the original file to GCS
     print(f"Bucket name {NEW_DATA_BUCKET}")
     file_location = await save_uploaded_file(file, NEW_DATA_BUCKET)
-    
-    # Get file extension
-    _, file_extension = os.path.splitext(file.filename)
-    file_extension = file_extension.lower()
-    
-    # Process based on file type
-    try:
-        if file_extension == '.pdf':
-            json_output = process_pdf_file(file_location)
-            return {"message": "PDF processed successfully", "file_location": json_output}
-        elif file_extension == '.json':
-            # JSON files don't need processing
-            return {"message": "JSON dataset uploaded successfully", "file_location": file_location}
-        elif file_extension == '.csv':
-            # Process CSV file to convert it to JSON format
-            json_output = process_csv_file(file_location)
-            return {"message": "CSV processed successfully", "file_location": json_output}
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_extension}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+    return {
+        "message": f"{os.path.splitext(file.filename)[1].upper()[1:]} file uploaded successfully",
+        "file_location": file_location
+    }
 
 def process_pdf_file(pdf_path):
     """
