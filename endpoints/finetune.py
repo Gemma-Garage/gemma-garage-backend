@@ -13,6 +13,8 @@ class FinetuneJobRequest(BaseModel):
     epochs: int
     learning_rate: float
     lora_rank: int = 4
+    dataset_choice: str = "original"  # 'original' or 'augmented'
+    qa_pairs_nbr: int | None = None   # Optional, for augmentation size
 
 class TrainResponse(BaseModel):
     message: str
@@ -28,20 +30,26 @@ async def train_model(request: FinetuneJobRequest):
     request_id = str(uuid.uuid4())
     try:
         print(f"Received training request: {request.model_dump()}, assigning request_id: {request_id}")
+        # Determine which dataset to use based on dataset_choice
+        dataset_path = request.dataset_path
+        if request.dataset_choice == "augmented":
+            # If the user chose augmented, replace .json with _augmented.json
+            if dataset_path.endswith(".json"):
+                dataset_path = dataset_path.replace(".json", "_augmented.json")
+            # If qa_pairs_nbr is provided, call the augmentation API with this parameter
+            if request.qa_pairs_nbr:
+                # Import and call the augmentation endpoint logic directly if needed, or trigger augmentation here
+                # Example: augment_dataset_gemma(dataset_path, qa_pairs_nbr=request.qa_pairs_nbr)
+                print(f"[INFO] Would trigger augmentation with qa_pairs_nbr={request.qa_pairs_nbr} for {dataset_path}")
+                # If augmentation is already done in frontend, this is just for completeness
         submit_finetuning_job(
             model_name=request.model_name,
-            dataset_path=request.dataset_path, # Should be just the filename
+            dataset_path=dataset_path, # Should be just the filename
             epochs=request.epochs,
             learning_rate=request.learning_rate,
             lora_rank=request.lora_rank,
             request_id=request_id
         )
-        # run_vertexai_job(model_name=request.model_name,
-        #     dataset_path=request.dataset_path, # Should be just the filename
-        #     epochs=request.epochs,
-        #     learning_rate=request.learning_rate,
-        #     lora_rank=request.lora_rank,
-        #     request_id=request_id)
         return TrainResponse(message="Training job submitted successfully.", request_id=request_id)
     except Exception as e:
         print(f"Error submitting training job for request_id {request_id}: {e}")

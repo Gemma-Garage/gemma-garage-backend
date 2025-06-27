@@ -21,7 +21,7 @@ class AugmentRequest(BaseModel):
     dataset_gcs_path: str
     fine_tuning_task_prompt: str
     model_choice: str = "gemini-2.5-flash-preview-05-20"
-    num_examples_to_generate: int = 50
+    qa_pairs: int = 50
 
 
 @router.post("/upload")
@@ -349,7 +349,7 @@ async def augment_dataset_gemma(request: AugmentRequest):
     
     fine_tuning_task_prompt = request.fine_tuning_task_prompt
     model_choice = request.model_choice
-    num_examples_to_generate = request.num_examples_to_generate
+    num_examples_to_generate = request.qa_pairs
     
     if not dataset_gcs_path.startswith("gs://"):
         raise HTTPException(status_code=400, detail="Invalid GCS path for dataset.")
@@ -472,17 +472,17 @@ async def augment_unified(request: AugmentRequest):
     """
     Unified augmentation endpoint: if the file is JSON, use the local Gemma augmentation logic;
     otherwise, call the remote synthetic-data-kit augmentation service. Output naming is consistent.
+    Accepts qa_pairs as the number of QA pairs to generate.
     """
     # Determine file extension
     _, file_extension = os.path.splitext(request.dataset_gcs_path)
     file_extension = file_extension.lower()
-
-    # Always get the base file name for consistent naming
     base_file_name = os.path.basename(request.dataset_gcs_path)
     output_augmented_name = base_file_name.replace('.json', '_augmented.json').replace('.pdf', '_augmented.json')
 
     if file_extension == '.json':
         # Use the existing Gemma augmentation logic (reuse augment_dataset_gemma)
+        # Pass qa_pairs to the augmentation logic
         result = await augment_dataset_gemma(request)
         # Rename the file in GCS if needed for consistency
         storage_client = storage.Client()
@@ -508,7 +508,7 @@ async def augment_unified(request: AugmentRequest):
         remote_url = "https://llm-garage-augmentation-513913820596.us-central1.run.app/augment/"
         response = requests.post(
             remote_url,
-            json={"file_name": base_file_name},
+            json={"file_name": base_file_name, "qa_pairs": request.qa_pairs},
             timeout=600
         )
         if response.status_code != 200:
