@@ -508,7 +508,7 @@ async def augment_unified(request: AugmentRequest):
         remote_url = "https://llm-garage-augmentation-513913820596.us-central1.run.app/augment/"
         response = requests.post(
             remote_url,
-            json={"file_name": base_file_name, "qa_pairs": request.qa_pairs},
+            json={"file_name": base_file_name, "qa_pairs": request.qa_pairs, "prompt": request.fine_tuning_task_prompt},
             timeout=600
         )
         if response.status_code != 200:
