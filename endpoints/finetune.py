@@ -4,6 +4,8 @@ from finetuning.vertexai import get_logs, submit_finetuning_job, run_vertexai_jo
 import uuid
 from datetime import datetime, timezone, timedelta
 import json
+import re
+
 
 router = APIRouter()
 
@@ -13,7 +15,7 @@ class FinetuneJobRequest(BaseModel):
     epochs: int
     learning_rate: float
     lora_rank: int = 4
-    dataset_choice: str = "original"  # 'original' or 'augmented'
+    dataset_choice: str = "augmented"  # 'original' or 'augmented'
     qa_pairs_nbr: int | None = None   # Optional, for augmentation size
 
 class TrainResponse(BaseModel):
@@ -34,8 +36,8 @@ async def train_model(request: FinetuneJobRequest):
         dataset_path = request.dataset_path
         if request.dataset_choice == "augmented":
             # If the user chose augmented, replace .json with _augmented.json
-            if dataset_path.endswith(".json"):
-                dataset_path = dataset_path.replace(".json", "_augmented.json")
+            if '.' in dataset_path:
+                dataset_path = re.sub(r'\.[^.]+$', '_augmented.json', dataset_path)
             # If qa_pairs_nbr is provided, call the augmentation API with this parameter
             if request.qa_pairs_nbr:
                 # Import and call the augmentation endpoint logic directly if needed, or trigger augmentation here
