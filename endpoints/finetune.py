@@ -34,16 +34,6 @@ async def train_model(request: FinetuneJobRequest):
         print(f"Received training request: {request.model_dump()}, assigning request_id: {request_id}")
         # Determine which dataset to use based on dataset_choice
         dataset_path = request.dataset_path
-        if request.dataset_choice == "augmented":
-            # If the user chose augmented, replace .json with _augmented.json
-            if '.' in dataset_path:
-                dataset_path = re.sub(r'\.[^.]+$', '_augmented.json', dataset_path)
-            # If qa_pairs_nbr is provided, call the augmentation API with this parameter
-            if request.qa_pairs_nbr:
-                # Import and call the augmentation endpoint logic directly if needed, or trigger augmentation here
-                # Example: augment_dataset_gemma(dataset_path, qa_pairs_nbr=request.qa_pairs_nbr)
-                print(f"[INFO] Would trigger augmentation with qa_pairs_nbr={request.qa_pairs_nbr} for {dataset_path}")
-                # If augmentation is already done in frontend, this is just for completeness
         submit_finetuning_job(
             model_name=request.model_name,
             dataset_path=dataset_path, # Should be just the filename
