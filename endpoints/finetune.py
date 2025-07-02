@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from finetuning.vertexai import get_logs, submit_finetuning_job, run_vertexai_job
 import uuid
 from datetime import datetime, timezone, timedelta
+from google.cloud import logging as cloud_logging
 import json
 import re
 
@@ -32,6 +33,19 @@ async def train_model(request: FinetuneJobRequest):
     request_id = str(uuid.uuid4())
     try:
         print(f"Received training request: {request.model_dump()}, assigning request_id: {request_id}")
+        # Emit a cloud log for job submission
+
+        cloud_logger_client = cloud_logging.Client()
+        log_name = f"gemma_garage_job_logs_{request_id}"
+        cloud_logger = cloud_logger_client.logger(log_name)
+        cloud_logger.log_struct({
+            "status_message": "Training job submitted and pending execution...",
+            "request_id": request_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "step": 0,
+            "step_name": "Job Submitted"
+        }, severity="INFO")
+
         # Determine which dataset to use based on dataset_choice
         dataset_path = request.dataset_path
         submit_finetuning_job(
