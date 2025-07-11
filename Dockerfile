@@ -4,12 +4,18 @@ FROM python:3.13-slim
 ARG HF_TOKEN
 #Gemini API key
 ARG GEMINI_KEY
+# Hugging Face OAuth credentials
+ARG HUGGINGFACE_CLIENT_ID
+ARG HUGGINGFACE_CLIENT_SECRET
 
 # Set default environment variables for GCS buckets
 ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
 ENV NEW_MODEL_OUTPUT_BUCKET="gs://llm-garage-models/gemma-peft-vertex-output"
 ENV NEW_STAGING_BUCKET="gs://llm-garage-vertex-staging"
 ENV GEMINI_API_KEY="${GEMINI_KEY}"
+ENV HUGGINGFACE_CLIENT_ID="${HUGGINGFACE_CLIENT_ID}"
+ENV HUGGINGFACE_CLIENT_SECRET="${HUGGINGFACE_CLIENT_SECRET}"
+ENV HUGGINGFACE_REDIRECT_URI="http://localhost:8080/oauth/huggingface/callback"
 
 # Install git and other necessary tools
 RUN apt-get update && \
