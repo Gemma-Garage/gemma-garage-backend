@@ -8,6 +8,10 @@ steps:
       - 'HF_TOKEN=$_HF_TOKEN'
       - '--build-arg'
       - 'GEMINI_KEY=$_GEMINI_KEY'
+      - '--build-arg'
+      - 'HUGGINGFACE_CLIENT_ID=$_HUGGINGFACE_CLIENT_ID'
+      - '--build-arg'
+      - 'HUGGINGFACE_CLIENT_SECRET=$_HUGGINGFACE_CLIENT_SECRET'
       - '.'
 images:
   - 'gcr.io/$PROJECT_ID/$_SERVICE'
