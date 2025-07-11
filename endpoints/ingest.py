@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import json
 from google.cloud import storage
 from urllib.parse import urlparse
-from gitingest import ingest
+from gitingest import ingest_async
 from config_vars import NEW_DATA_BUCKET
 
 class IngestRequest(BaseModel):
@@ -49,11 +49,12 @@ async def ingest_repository(request: IngestRequest):
         
         # Run the synchronous function `ingest` in a separate thread to avoid
         # blocking the event loop and to allow it to run its own asyncio.run()
-        summary, tree, content = await loop.run_in_executor(
-            None,  # Use the default thread pool executor
-            ingest,  # The synchronous function to call
-            repo_url  # The argument for the function
-        )
+        # summary, tree, content = await loop.run_in_executor(
+        #     None,  # Use the default thread pool executor
+        #     ingest_async,  # The synchronous function to call
+        #     repo_url  # The argument for the function
+        # )
+        summary, tree, content = await ingest_async(repo_url)
 
         print("Ingestion completed successfully.")
 
