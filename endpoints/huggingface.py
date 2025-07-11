@@ -71,7 +71,8 @@ async def huggingface_login(request: Request):
     
     oauth_url = f"https://huggingface.co/oauth/authorize?{urllib.parse.urlencode(params)}"
     
-    return {"oauth_url": oauth_url}
+    # Redirect directly to Hugging Face OAuth
+    return RedirectResponse(url=oauth_url)
 
 @router.get("/callback")
 async def huggingface_callback(code: str, state: str, request: Request, response: Response):
