@@ -76,6 +76,7 @@ google-cloud-appengine-logging==1.6.1
 google-cloud-audit-log==0.3.2
 #google-cloud-bigquery==3.32.0
 google-cloud-core==2.4.3
+google-cloud-firestore==2.21.1
 google-cloud-logging==3.12.1
 google-cloud-scheduler
 google-cloud-resource-manager==1.14.2
