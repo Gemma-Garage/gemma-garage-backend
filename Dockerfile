@@ -9,7 +9,7 @@ ARG GEMINI_KEY
 ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
 ENV NEW_MODEL_OUTPUT_BUCKET="gs://llm-garage-models/gemma-peft-vertex-output"
 ENV NEW_STAGING_BUCKET="gs://llm-garage-vertex-staging"
-ENV GEMINI_API_KEY="${GEMINI_KEY}" 
+ENV GEMINI_API_KEY="${GEMINI_KEY}"
 
 # Install git and other necessary tools
 RUN apt-get update && \
