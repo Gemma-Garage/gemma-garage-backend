@@ -22,6 +22,7 @@ db = firestore.Client()
 HUGGINGFACE_CLIENT_ID = os.getenv("HUGGINGFACE_CLIENT_ID")
 HUGGINGFACE_CLIENT_SECRET = os.getenv("HUGGINGFACE_CLIENT_SECRET")
 HUGGINGFACE_REDIRECT_URI = os.getenv("HUGGINGFACE_REDIRECT_URI", "http://localhost:8080/oauth/huggingface/callback")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # In-memory storage for OAuth states and tokens (in production, use Redis or database)
 oauth_states = {}
@@ -144,10 +145,12 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         )
         
         # Redirect to frontend success page
-        return RedirectResponse(url="http://localhost:3000/hf-test?success=true")
+        return RedirectResponse(url=f"{FRONTEND_URL}/hf-test?success=true")
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OAuth callback error: {str(e)}")
+        # Redirect to frontend with error
+        error_url = f"{FRONTEND_URL}/hf-test?error={urllib.parse.quote(str(e))}"
+        return RedirectResponse(url=error_url)
 
 @router.post("/logout")
 async def huggingface_logout(request: Request, response: Response):

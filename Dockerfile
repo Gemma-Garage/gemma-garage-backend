@@ -7,6 +7,7 @@ ARG GEMINI_KEY
 # Hugging Face OAuth credentials
 ARG HUGGINGFACE_CLIENT_ID
 ARG HUGGINGFACE_CLIENT_SECRET
+ARG FRONTEND_URL
 
 # Set default environment variables for GCS buckets
 ENV NEW_DATA_BUCKET="gs://llm-garage-datasets"
@@ -16,6 +17,7 @@ ENV GEMINI_API_KEY="${GEMINI_KEY}"
 ENV HUGGINGFACE_CLIENT_ID="${HUGGINGFACE_CLIENT_ID}"
 ENV HUGGINGFACE_CLIENT_SECRET="${HUGGINGFACE_CLIENT_SECRET}"
 ENV HUGGINGFACE_REDIRECT_URI="https://llm-garage-513913820596.us-central1.run.app/oauth/huggingface/callback"
+ENV FRONTEND_URL="https://gemma-garage.web.app"
 
 # Install git and other necessary tools
 RUN apt-get update && \
