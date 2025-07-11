@@ -148,7 +148,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if request_id:
             redirect_url = f"{FRONTEND_URL}/project/{request_id}?hf_connected=true"
         else:
-            redirect_url = f"{FRONTEND_URL}/hf-test?success=true"
+            redirect_url = f"{FRONTEND_URL}/huggingface-test?success=true"
             
         # For debugging: let's try setting the cookie differently
         redirect_response = RedirectResponse(url=redirect_url)
@@ -168,7 +168,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         
     except Exception as e:
         # Redirect to frontend with error
-        error_url = f"{FRONTEND_URL}/hf-test?error={urllib.parse.quote(str(e))}"
+        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(str(e))}"
         return RedirectResponse(url=error_url)
 
 @router.post("/logout")
