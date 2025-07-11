@@ -55,6 +55,8 @@ async def ingest_repository(request: IngestRequest):
             repo_url  # The argument for the function
         )
 
+        print("Ingestion completed successfully.")
+
         # Prepare the data for upload
         ingested_data = {
             "repository_url": repo_url,
