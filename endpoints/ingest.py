@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import json
@@ -6,6 +8,9 @@ from google.cloud import storage
 from urllib.parse import urlparse
 from gitingest import ingest_async
 from config_vars import NEW_DATA_BUCKET
+
+# Ensure gitingest uses /tmp for cloning in Cloud Run
+os.environ.setdefault('TMPDIR', '/tmp')
 
 class IngestRequest(BaseModel):
     repository_url: str
@@ -47,13 +52,7 @@ async def ingest_repository(request: IngestRequest):
     try:
         loop = asyncio.get_running_loop()
         
-        # Run the synchronous function `ingest` in a separate thread to avoid
-        # blocking the event loop and to allow it to run its own asyncio.run()
-        # summary, tree, content = await loop.run_in_executor(
-        #     None,  # Use the default thread pool executor
-        #     ingest_async,  # The synchronous function to call
-        #     repo_url  # The argument for the function
-        # )
+        # Use ingest_async directly since we're already in an async context
         summary, tree, content = await ingest_async(repo_url)
 
         print("Ingestion completed successfully.")

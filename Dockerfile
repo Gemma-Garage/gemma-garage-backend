@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.9-slim
 
 #huggingface token
 ARG HF_TOKEN
@@ -11,11 +11,14 @@ ENV NEW_MODEL_OUTPUT_BUCKET="gs://llm-garage-models/gemma-peft-vertex-output"
 ENV NEW_STAGING_BUCKET="gs://llm-garage-vertex-staging"
 ENV GEMINI_API_KEY="${GEMINI_KEY}" 
 
-# Install git
+# Install git and other necessary tools
 RUN apt-get update && \
-    apt-get install -y git && \
+    apt-get install -y git curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Create and set permissions for temp directory
+RUN mkdir -p /tmp && chmod 777 /tmp
 
 WORKDIR /app
 
