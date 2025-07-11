@@ -17,7 +17,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create and set permissions for temp directory
+# Create and set permissions for temp directory (required for gitingest)
 RUN mkdir -p /tmp && chmod 777 /tmp
 
 WORKDIR /app
