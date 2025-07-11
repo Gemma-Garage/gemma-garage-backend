@@ -51,7 +51,7 @@ async def check_oauth_config():
     }
 
 @router.get("/login")
-async def huggingface_login(request: Request):
+async def huggingface_login(request: Request, request_id: str = None):
     """Initiate Hugging Face OAuth login."""
     
     if not HUGGINGFACE_CLIENT_ID:
@@ -59,7 +59,10 @@ async def huggingface_login(request: Request):
     
     # Generate state parameter for security
     state = secrets.token_urlsafe(32)
-    oauth_states[state] = {"timestamp": datetime.now()}
+    oauth_states[state] = {
+        "timestamp": datetime.now(),
+        "request_id": request_id  # Store request_id to use after callback
+    }
     
     # Build OAuth URL
     params = {
@@ -82,6 +85,10 @@ async def huggingface_callback(code: str, state: str, request: Request, response
     # Verify state parameter
     if state not in oauth_states:
         raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
+    # Get request_id from stored state
+    stored_state = oauth_states[state]
+    request_id = stored_state.get("request_id")
     
     # Clean up old states (older than 10 minutes)
     current_time = datetime.now()
@@ -145,7 +152,10 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         )
         
         # Redirect to frontend success page
-        return RedirectResponse(url=f"{FRONTEND_URL}/hf-test?success=true")
+        if request_id:
+            return RedirectResponse(url=f"{FRONTEND_URL}/project/{request_id}?hf_connected=true")
+        else:
+            return RedirectResponse(url=f"{FRONTEND_URL}/hf-test?success=true")
         
     except Exception as e:
         # Redirect to frontend with error
