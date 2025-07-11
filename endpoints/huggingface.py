@@ -141,21 +141,30 @@ async def huggingface_callback(code: str, state: str, request: Request, response
             "timestamp": current_time
         }
         
-        # Set session cookie
-        response.set_cookie(
+        print(f"OAuth callback: Stored session {session_id} for user {user_info.get('name', 'Unknown')}")
+        print(f"Total stored sessions: {len(user_tokens)}")
+        
+        # Create redirect response first
+        if request_id:
+            redirect_url = f"{FRONTEND_URL}/project/{request_id}?hf_connected=true"
+        else:
+            redirect_url = f"{FRONTEND_URL}/hf-test?success=true"
+            
+        # For debugging: let's try setting the cookie differently
+        redirect_response = RedirectResponse(url=redirect_url)
+        
+        # Set session cookie on the redirect response
+        redirect_response.set_cookie(
             key="hf_session",
             value=session_id,
             max_age=3600,  # 1 hour
-            httponly=True,
-            secure=False,  # Set to True in production with HTTPS
-            samesite="lax"
+            httponly=False,  # Allow JS access for debugging
+            secure=False,   # Set to True in production with HTTPS
+            samesite="lax"  # Allow cross-site usage
         )
         
-        # Redirect to frontend success page
-        if request_id:
-            return RedirectResponse(url=f"{FRONTEND_URL}/project/{request_id}?hf_connected=true")
-        else:
-            return RedirectResponse(url=f"{FRONTEND_URL}/hf-test?success=true")
+        print(f"OAuth callback: Redirecting to {redirect_url} with session cookie {session_id}")
+        return redirect_response
         
     except Exception as e:
         # Redirect to frontend with error
@@ -284,9 +293,14 @@ async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
 async def get_hf_connection_status(request: Request):
     """Get Hugging Face connection status for the current user."""
     
+    session_id = request.cookies.get("hf_session")
+    print(f"Status check: Session ID from cookie: {session_id}")
+    print(f"Available sessions: {list(user_tokens.keys())}")
+    
     token_data = get_user_token(request)
     
     if not token_data:
+        print("Status check: No valid token data found")
         return {
             "connected": False,
             "username": None,
@@ -294,6 +308,7 @@ async def get_hf_connection_status(request: Request):
         }
     
     user_info = token_data["user_info"]
+    print(f"Status check: Returning connected status for user {user_info.get('name', 'Unknown')}")
     
     return {
         "connected": True,

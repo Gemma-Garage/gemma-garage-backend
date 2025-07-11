@@ -22,6 +22,7 @@ app.include_router(finetune.router, prefix="/finetune", tags=["Fine-tuning"])
 app.include_router(download.router, prefix="/download", tags=["Download"])
 app.include_router(ingest.router, prefix="/ingest", tags=["Ingest"])
 app.include_router(huggingface.router, prefix="/huggingface", tags=["Hugging Face"])
+# OAuth endpoints are also available under /oauth/huggingface for specific OAuth calls
 app.include_router(huggingface.router, prefix="/oauth/huggingface", tags=["Hugging Face OAuth"])
 
 
