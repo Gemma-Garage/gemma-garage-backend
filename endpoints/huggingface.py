@@ -39,6 +39,16 @@ class HFInferenceRequest(BaseModel):
     prompt: str
     max_new_tokens: int = 100
 
+@router.get("/config")
+async def check_oauth_config():
+    """Check OAuth configuration status."""
+    return {
+        "client_id_configured": bool(HUGGINGFACE_CLIENT_ID),
+        "client_secret_configured": bool(HUGGINGFACE_CLIENT_SECRET),
+        "redirect_uri": HUGGINGFACE_REDIRECT_URI,
+        "client_id_preview": HUGGINGFACE_CLIENT_ID[:8] + "..." if HUGGINGFACE_CLIENT_ID else None
+    }
+
 @router.get("/login")
 async def huggingface_login(request: Request):
     """Initiate Hugging Face OAuth login."""
@@ -133,7 +143,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         )
         
         # Redirect to frontend success page
-        return RedirectResponse(url="http://localhost:3000/project?hf_connected=true")
+        return RedirectResponse(url="http://localhost:3000/hf-test?success=true")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OAuth callback error: {str(e)}")

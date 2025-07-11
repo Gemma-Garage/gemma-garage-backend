@@ -21,7 +21,8 @@ app.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])
 app.include_router(finetune.router, prefix="/finetune", tags=["Fine-tuning"])
 app.include_router(download.router, prefix="/download", tags=["Download"])
 app.include_router(ingest.router, prefix="/ingest", tags=["Ingest"])
-app.include_router(huggingface.router, prefix="/oauth/huggingface", tags=["Hugging Face"])
+app.include_router(huggingface.router, prefix="/huggingface", tags=["Hugging Face"])
+app.include_router(huggingface.router, prefix="/oauth/huggingface", tags=["Hugging Face OAuth"])
 
 
 if __name__ == "__main__":
