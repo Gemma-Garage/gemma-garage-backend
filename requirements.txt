@@ -86,6 +86,7 @@ google-cloud-batch
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpc-google-iam-v1==0.14.2
+gitingest==0.1.5
 #transformers
 # PDF Processing
-PyMuPDF==1.25.4
+#PyMuPDF==1.25.4
