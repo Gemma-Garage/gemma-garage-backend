@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import json
@@ -44,8 +45,15 @@ async def ingest_repository(request: IngestRequest):
     print(f"URL {repo_url} received for ingestion.")
 
     try:
-        # Ingest the repository
-        summary, tree, content = ingest(repo_url)
+        loop = asyncio.get_running_loop()
+        
+        # Run the synchronous function `ingest` in a separate thread to avoid
+        # blocking the event loop and to allow it to run its own asyncio.run()
+        summary, tree, content = await loop.run_in_executor(
+            None,  # Use the default thread pool executor
+            ingest,  # The synchronous function to call
+            repo_url  # The argument for the function
+        )
 
         # Prepare the data for upload
         ingested_data = {
