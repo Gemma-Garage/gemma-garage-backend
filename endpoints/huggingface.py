@@ -1,16 +1,18 @@
 import os
 import asyncio
+import tempfile
+import shutil
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 import httpx
-from google.cloud import firestore
+from google.cloud import firestore, storage
 from typing import Optional
 import json
 import secrets
 import urllib.parse
 from datetime import datetime, timedelta
-from huggingface_hub import HfApi, upload_file, create_repo
+from huggingface_hub import HfApi, upload_file, upload_folder, create_repo
 from config_vars import NEW_DATA_BUCKET
 
 router = APIRouter()
@@ -29,11 +31,12 @@ oauth_states = {}
 user_tokens = {}
 
 class HFUploadRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     model_name: str
     request_id: str
     description: Optional[str] = "Fine-tuned model from Gemma Garage"
     private: bool = False
+    base_model: Optional[str] = "google/gemma-2b"
 
 class HFInferenceRequest(BaseModel):
     model_name: str
@@ -244,20 +247,133 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
             exist_ok=True
         )
         
-        # TODO: Download model files from GCS and upload to HF
-        # This is a placeholder - in practice, you'd:
-        # 1. Download model files from GCS bucket using request.request_id
-        # 2. Upload each file to the HF repository
-        # 3. Create model card with description
+        # Download model files from GCS and upload to HF
+        base_gcs_output_bucket_uri = os.environ.get("NEW_MODEL_OUTPUT_BUCKET")
+        if not base_gcs_output_bucket_uri:
+            raise HTTPException(status_code=500, detail="NEW_MODEL_OUTPUT_BUCKET environment variable not set")
+
+        gcs_model_directory_path = f"{base_gcs_output_bucket_uri.rstrip('/')}/model/{request.request_id}/final_model/"
         
-        # For now, return success with repository URL
+        # Parse GCS path
+        if not gcs_model_directory_path.startswith("gs://"):
+            raise ValueError("GCS path must start with gs://")
+        
+        path_parts = gcs_model_directory_path[5:].split("/", 1)
+        if len(path_parts) != 2:
+            raise ValueError("Invalid GCS path format")
+        
+        bucket_name, model_directory_prefix = path_parts
+        
+        # Initialize Google Cloud Storage client
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        
+        # List all model files
+        blobs = list(bucket.list_blobs(prefix=model_directory_prefix))
+        if not blobs:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No model files found in GCS path {gcs_model_directory_path}"
+            )
+        
+        # Create temporary directory to download model files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            print(f"Downloading model files from GCS to {temp_dir}")
+            
+            # Download all model files to temporary directory
+            for blob in blobs:
+                if blob.name.endswith('/'):
+                    continue  # Skip directory markers
+                
+                # Get the relative path within the model directory
+                relative_path = blob.name[len(model_directory_prefix):].lstrip('/')
+                if not relative_path:
+                    continue
+                
+                local_file_path = os.path.join(temp_dir, relative_path)
+                
+                # Create directory if needed
+                os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                
+                # Download file
+                print(f"Downloading {blob.name} to {local_file_path}")
+                blob.download_to_filename(local_file_path)
+            
+            # Create model card
+            model_card_content = f"""---
+language: en
+license: apache-2.0
+tags:
+- fine-tuned
+- gemma
+- lora
+- gemma-garage
+base_model: {request.base_model}
+pipeline_tag: text-generation
+---
+
+# {request.model_name}
+
+{request.description}
+
+This model was fine-tuned using [Gemma Garage](https://github.com/your-repo/gemma-garage), a platform for fine-tuning Gemma models with LoRA.
+
+## Model Details
+
+- **Base Model**: {request.base_model}
+- **Fine-tuning Method**: LoRA (Low-Rank Adaptation)
+- **Training Platform**: Gemma Garage
+- **Fine-tuned on**: {datetime.now().strftime('%Y-%m-%d')}
+
+## Usage
+
+```python
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+tokenizer = AutoTokenizer.from_pretrained("{repo_name}")
+model = AutoModelForCausalLM.from_pretrained("{repo_name}")
+
+# Generate text
+inputs = tokenizer("Your prompt here", return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=100)
+response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(response)
+```
+
+## Training Details
+
+This model was fine-tuned using the Gemma Garage platform with the following configuration:
+- Request ID: {request.request_id}
+- Training completed on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+For more information about Gemma Garage, visit [our GitHub repository](https://github.com/your-repo/gemma-garage).
+"""
+            
+            # Save model card
+            model_card_path = os.path.join(temp_dir, "README.md")
+            with open(model_card_path, "w", encoding="utf-8") as f:
+                f.write(model_card_content)
+            
+            print(f"Uploading model files from {temp_dir} to HF repo {repo_name}")
+            
+            # Upload all files to HuggingFace repository
+            upload_folder(
+                folder_path=temp_dir,
+                repo_id=repo_name,
+                token=hf_token,
+                commit_message=f"Upload fine-tuned model from Gemma Garage (request: {request.request_id})"
+            )
+        
         return {
             "success": True,
             "repo_url": f"https://huggingface.co/{repo_name}",
-            "message": f"Model repository created: {repo_name}"
+            "repo_name": repo_name,
+            "message": f"Model successfully uploaded to {repo_name}",
+            "files_uploaded": len([b for b in blobs if not b.name.endswith('/')])
         }
         
     except Exception as e:
+        print(f"Error uploading model to HF: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
 
 @router.post("/inference")
