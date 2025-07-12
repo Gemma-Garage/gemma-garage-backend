@@ -146,21 +146,25 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         
         # Create redirect response first
         if request_id:
-            redirect_url = f"{FRONTEND_URL}/project/{request_id}?hf_connected=true"
+            # Include session token in URL for cross-origin scenarios
+            redirect_url = f"{FRONTEND_URL}/project/{request_id}?hf_connected=true&session_token={session_id}"
         else:
-            redirect_url = f"{FRONTEND_URL}/huggingface-test?success=true"
+            redirect_url = f"{FRONTEND_URL}/huggingface-test?success=true&session_token={session_id}"
             
         # For debugging: let's try setting the cookie differently
         redirect_response = RedirectResponse(url=redirect_url)
         
         # Set session cookie on the redirect response
+        # Use domain and path settings appropriate for cross-origin
         redirect_response.set_cookie(
             key="hf_session",
             value=session_id,
             max_age=3600,  # 1 hour
             httponly=False,  # Allow JS access for debugging
-            secure=False,   # Set to True in production with HTTPS
-            samesite="lax"  # Allow cross-site usage
+            secure=True,    # Set to True for production with HTTPS (required for cross-origin)
+            samesite="none",  # Allow cross-site usage (required for cross-origin)
+            domain=None,    # Don't set domain to allow cross-origin
+            path="/"        # Set root path
         )
         
         print(f"OAuth callback: Redirecting to {redirect_url} with session cookie {session_id}")
@@ -175,17 +179,32 @@ async def huggingface_callback(code: str, state: str, request: Request, response
 async def huggingface_logout(request: Request, response: Response):
     """Log out from Hugging Face."""
     
+    # Try to get session ID from cookie or Authorization header
     session_id = request.cookies.get("hf_session")
+    if not session_id:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_id = auth_header[7:]  # Remove "Bearer " prefix
+    
     if session_id and session_id in user_tokens:
         del user_tokens[session_id]
+        print(f"Logout: Removed session {session_id}")
     
     response.delete_cookie("hf_session")
     
     return {"success": True, "message": "Logged out successfully"}
 
 def get_user_token(request: Request):
-    """Get user token from session."""
+    """Get user token from session cookie or Authorization header."""
+    # Try cookie first
     session_id = request.cookies.get("hf_session")
+    
+    # If no cookie, try Authorization header
+    if not session_id:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_id = auth_header[7:]  # Remove "Bearer " prefix
+    
     if not session_id or session_id not in user_tokens:
         return None
     
@@ -293,8 +312,18 @@ async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
 async def get_hf_connection_status(request: Request):
     """Get Hugging Face connection status for the current user."""
     
+    # Try cookie first
     session_id = request.cookies.get("hf_session")
-    print(f"Status check: Session ID from cookie: {session_id}")
+    source = "cookie"
+    
+    # If no cookie, try Authorization header
+    if not session_id:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_id = auth_header[7:]  # Remove "Bearer " prefix
+            source = "header"
+    
+    print(f"Status check: Session ID from {source}: {session_id}")
     print(f"Available sessions: {list(user_tokens.keys())}")
     
     token_data = get_user_token(request)
@@ -304,7 +333,12 @@ async def get_hf_connection_status(request: Request):
         return {
             "connected": False,
             "username": None,
-            "user_info": None
+            "user_info": None,
+            "debug": {
+                "session_id": session_id,
+                "source": source,
+                "available_sessions": list(user_tokens.keys())
+            }
         }
     
     user_info = token_data["user_info"]
@@ -319,5 +353,10 @@ async def get_hf_connection_status(request: Request):
             "picture": user_info.get("picture", ""),
             "is_pro": user_info.get("isPro", False)
         },
-        "expires_at": token_data["expires_at"].isoformat()
+        "expires_at": token_data["expires_at"].isoformat(),
+        "debug": {
+            "session_id": session_id,
+            "source": source,
+            "available_sessions": list(user_tokens.keys())
+        }
     }
