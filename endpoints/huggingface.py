@@ -71,7 +71,7 @@ async def huggingface_login(request: Request, request_id: str = None):
     params = {
         "client_id": HUGGINGFACE_CLIENT_ID,
         "redirect_uri": HUGGINGFACE_REDIRECT_URI,
-        "scope": "read-repos write-repos inference-api",
+        "scope": "read-repos write-repos manage-repos inference-api",
         "state": state,
         "response_type": "code"
     }
@@ -239,13 +239,27 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
     repo_name = f"{hf_username}/{request.model_name}"
     
     try:
+        # First, check token permissions by getting user info
+        try:
+            user_info = api.whoami()
+            print(f"Token permissions check - User: {user_info}")
+            
+            # Check if user has necessary permissions
+            if not user_info.get("auth", {}).get("accessToken", {}).get("role") in ["write", "admin"]:
+                print(f"User permissions: {user_info.get('auth', {})}")
+        except Exception as perm_error:
+            print(f"Permission check failed: {perm_error}")
+            # Continue anyway, let the actual operation fail with a more specific error
+        
         # Create repository on Hugging Face
+        print(f"Attempting to create repository: {repo_name}")
         repo_url = create_repo(
             repo_id=repo_name,
             token=hf_token,
             private=request.private,
             exist_ok=True
         )
+        print(f"Repository created successfully: {repo_url}")
         
         # Download model files from GCS and upload to HF
         base_gcs_output_bucket_uri = os.environ.get("NEW_MODEL_OUTPUT_BUCKET")
@@ -373,8 +387,29 @@ For more information about Gemma Garage, visit [our GitHub repository](https://g
         }
         
     except Exception as e:
-        print(f"Error uploading model to HF: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
+        error_msg = str(e)
+        print(f"Error uploading model to HF: {error_msg}")
+        
+        # Provide more specific error messages for common issues
+        if "403 Forbidden" in error_msg and "don't have the rights" in error_msg:
+            detailed_error = (
+                f"Permission denied: You don't have the rights to create models under the namespace '{hf_username}'. "
+                "This could be due to:\n"
+                "1. Your Hugging Face token doesn't have 'write-repos' permissions\n"
+                "2. Your account may need to be verified or upgraded\n"
+                "3. Try creating the repository manually first on HuggingFace.co\n"
+                f"Original error: {error_msg}"
+            )
+        elif "401" in error_msg or "authentication" in error_msg.lower():
+            detailed_error = f"Authentication failed: Your Hugging Face token may have expired or be invalid. Please reconnect. Original error: {error_msg}"
+        elif "404" in error_msg:
+            detailed_error = f"Resource not found: {error_msg}"
+        elif "No model files found" in error_msg:
+            detailed_error = f"Training data not found: {error_msg}. Please ensure your fine-tuning job completed successfully."
+        else:
+            detailed_error = f"Upload failed: {error_msg}"
+        
+        raise HTTPException(status_code=500, detail=detailed_error)
 
 @router.post("/inference")
 async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
@@ -476,3 +511,41 @@ async def get_hf_connection_status(request: Request):
             "available_sessions": list(user_tokens.keys())
         }
     }
+
+@router.get("/token-permissions")
+async def check_token_permissions(request: Request):
+    """Check what permissions the current HF token has."""
+    
+    # Get user token
+    token_data = get_user_token(request)
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
+    
+    hf_token = token_data["access_token"]
+    
+    try:
+        # Initialize HF API
+        api = HfApi(token=hf_token)
+        
+        # Get user info including permissions
+        user_info = api.whoami()
+        
+        # Extract relevant permission information
+        auth_info = user_info.get("auth", {})
+        access_token_info = auth_info.get("accessToken", {})
+        
+        return {
+            "user": user_info.get("name", "Unknown"),
+            "email": user_info.get("email", "Unknown"),
+            "permissions": {
+                "role": access_token_info.get("role", "unknown"),
+                "scopes": access_token_info.get("scopes", []),
+            },
+            "can_create_repos": "write" in str(access_token_info.get("role", "")).lower() or 
+                               "write-repos" in access_token_info.get("scopes", []) or
+                               "manage-repos" in access_token_info.get("scopes", []),
+            "raw_auth_info": auth_info  # For debugging
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check permissions: {str(e)}")
