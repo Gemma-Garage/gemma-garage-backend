@@ -1,16 +1,18 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from endpoints import model, dataset, finetune, download, inference, ingest, huggingface
 
 app = FastAPI(title="LLM Garage API")
 
-origins = [
-    "http://localhost:3000",  # your React app's origin
+# Allow multiple origins for CORS, can be overridden with environment variable
+default_origins = [
+    "https://gemma-garage.web.app",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=default_origins,  # Use specific origins when credentials are enabled
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
