@@ -60,40 +60,22 @@ def check_rate_limit(endpoint: str) -> bool:
     return True
 
 async def make_hf_request_with_retry(client: httpx.AsyncClient, method: str, url: str, **kwargs):
-    """Make HTTP request to HF with rate limit handling and retry logic."""
-    max_retries = 3
-    base_delay = 1
-    
-    for attempt in range(max_retries):
-        try:
-            if method.upper() == "POST":
-                response = await client.post(url, **kwargs)
-            else:
-                response = await client.get(url, **kwargs)
-            
-            # If we get rate limited, wait and retry
-            if response.status_code == 429:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # Exponential backoff
-                    print(f"Rate limited by HF, waiting {delay} seconds before retry {attempt + 1}/{max_retries}")
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    # Last attempt failed, return the 429 response
-                    return response
-            
-            return response
-            
-        except Exception as e:
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                print(f"Request failed with {e}, retrying in {delay} seconds")
-                await asyncio.sleep(delay)
-                continue
-            else:
-                raise e
-    
-    return None  # Should never reach here
+    """Make HTTP request to HF with basic error handling - NO RETRIES for rate limits."""
+    try:
+        if method.upper() == "POST":
+            response = await client.post(url, **kwargs)
+        else:
+            response = await client.get(url, **kwargs)
+        
+        # Log rate limiting but don't retry - that makes it worse!
+        if response.status_code == 429:
+            print(f"Rate limited by HF on {url} - NOT retrying to avoid making it worse")
+        
+        return response
+        
+    except Exception as e:
+        print(f"Request to {url} failed with exception: {e}")
+        raise e
 
 class HFUploadRequest(BaseModel):
     user_id: Optional[str] = None
@@ -186,14 +168,8 @@ async def huggingface_callback(code: str, state: str, request: Request, response
     current_time = datetime.now()
     oauth_states.clear()  # Simple cleanup for demo
     
-    # Check rate limit before making API calls
-    if not check_rate_limit("oauth_token"):
-        print("Rate limit exceeded for OAuth token exchange")
-        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote('Rate limit exceeded. Please wait a moment and try again.')}"
-        return RedirectResponse(url=error_url)
-    
     try:
-        # Exchange code for access token with retry logic
+        # Exchange code for access token - single request only
         async with httpx.AsyncClient() as client:
             print("Attempting token exchange with HuggingFace...")
             token_response = await make_hf_request_with_retry(
@@ -239,31 +215,13 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
         
-        # Check rate limit before getting user info
-        if not check_rate_limit("oauth_userinfo"):
-            print("Rate limit exceeded for user info request")
-            # Still proceed but skip user info for now, we can get it later
-            user_info = {"name": "Unknown", "email": "unknown@example.com"}
-        else:
-            # Get user info with retry logic
-            async with httpx.AsyncClient() as client:
-                print("Getting user info from HuggingFace...")
-                user_response = await make_hf_request_with_retry(
-                    client,
-                    "GET",
-                    "https://huggingface.co/api/whoami-v2",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    timeout=30.0
-                )
-            
-            if user_response.status_code == 429:
-                print("Rate limited on user info request, using minimal user data")
-                user_info = {"name": "Unknown", "email": "unknown@example.com"}
-            elif user_response.status_code != 200:
-                print(f"Failed to get user info: {user_response.status_code}")
-                user_info = {"name": "Unknown", "email": "unknown@example.com"}
-            else:
-                user_info = user_response.json()
+        # Skip user info retrieval during OAuth to reduce API calls
+        # We can get user info later when needed using the access token
+        user_info = {
+            "name": "HuggingFace User", 
+            "email": "user@huggingface.co",
+            "note": "User info will be loaded when needed to avoid rate limiting during OAuth"
+        }
         
         # Generate session ID
         session_id = secrets.token_urlsafe(32)
@@ -273,7 +231,8 @@ async def huggingface_callback(code: str, state: str, request: Request, response
             "access_token": access_token,
             "user_info": user_info,
             "expires_at": current_time + timedelta(hours=1),  # 1 hour expiration
-            "timestamp": current_time
+            "timestamp": current_time,
+            "user_info_loaded": False  # Flag to indicate we need to load user info later
         }
         
         print(f"OAuth callback: Stored session {session_id} for user {user_info.get('name', 'Unknown')}")
