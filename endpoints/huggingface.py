@@ -2,6 +2,7 @@ import os
 import asyncio
 import tempfile
 import shutil
+import time
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -32,6 +33,68 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://gemma-garage.web.app")
 oauth_states = {}
 user_tokens = {}
 
+# Rate limiting tracking
+api_call_history = {}
+MAX_CALLS_PER_MINUTE = 10  # Conservative limit for HF OAuth endpoints
+RATE_LIMIT_WINDOW = 60  # seconds
+
+def check_rate_limit(endpoint: str) -> bool:
+    """Check if we're within rate limits for a specific endpoint."""
+    current_time = time.time()
+    
+    if endpoint not in api_call_history:
+        api_call_history[endpoint] = []
+    
+    # Remove calls older than the window
+    api_call_history[endpoint] = [
+        call_time for call_time in api_call_history[endpoint]
+        if current_time - call_time < RATE_LIMIT_WINDOW
+    ]
+    
+    # Check if we're under the limit
+    if len(api_call_history[endpoint]) >= MAX_CALLS_PER_MINUTE:
+        return False
+    
+    # Record this call
+    api_call_history[endpoint].append(current_time)
+    return True
+
+async def make_hf_request_with_retry(client: httpx.AsyncClient, method: str, url: str, **kwargs):
+    """Make HTTP request to HF with rate limit handling and retry logic."""
+    max_retries = 3
+    base_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            if method.upper() == "POST":
+                response = await client.post(url, **kwargs)
+            else:
+                response = await client.get(url, **kwargs)
+            
+            # If we get rate limited, wait and retry
+            if response.status_code == 429:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    print(f"Rate limited by HF, waiting {delay} seconds before retry {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Last attempt failed, return the 429 response
+                    return response
+            
+            return response
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                print(f"Request failed with {e}, retrying in {delay} seconds")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                raise e
+    
+    return None  # Should never reach here
+
 class HFUploadRequest(BaseModel):
     user_id: Optional[str] = None
     model_name: str
@@ -53,6 +116,30 @@ async def check_oauth_config():
         "client_secret_configured": bool(HUGGINGFACE_CLIENT_SECRET),
         "redirect_uri": HUGGINGFACE_REDIRECT_URI,
         "client_id_preview": HUGGINGFACE_CLIENT_ID[:8] + "..." if HUGGINGFACE_CLIENT_ID else None
+    }
+
+@router.get("/rate-limit-status")
+async def get_rate_limit_status():
+    """Get current rate limit status for HF API calls."""
+    current_time = time.time()
+    status = {}
+    
+    for endpoint, calls in api_call_history.items():
+        # Filter recent calls
+        recent_calls = [call for call in calls if current_time - call < RATE_LIMIT_WINDOW]
+        remaining = max(0, MAX_CALLS_PER_MINUTE - len(recent_calls))
+        
+        status[endpoint] = {
+            "calls_in_last_minute": len(recent_calls),
+            "limit": MAX_CALLS_PER_MINUTE,
+            "remaining": remaining,
+            "can_make_request": remaining > 0
+        }
+    
+    return {
+        "rate_limits": status,
+        "window_seconds": RATE_LIMIT_WINDOW,
+        "max_calls_per_minute": MAX_CALLS_PER_MINUTE
     }
 
 @router.get("/login")
@@ -99,30 +186,52 @@ async def huggingface_callback(code: str, state: str, request: Request, response
     current_time = datetime.now()
     oauth_states.clear()  # Simple cleanup for demo
     
+    # Check rate limit before making API calls
+    if not check_rate_limit("oauth_token"):
+        print("Rate limit exceeded for OAuth token exchange")
+        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote('Rate limit exceeded. Please wait a moment and try again.')}"
+        return RedirectResponse(url=error_url)
+    
     try:
-        # Exchange code for access token
+        # Exchange code for access token with retry logic
         async with httpx.AsyncClient() as client:
-            # Fix: Add timeout and better error handling
-            token_response = await client.post(
+            print("Attempting token exchange with HuggingFace...")
+            token_response = await make_hf_request_with_retry(
+                client,
+                "POST",
                 "https://huggingface.co/oauth/token",
                 data={
                     "client_id": HUGGINGFACE_CLIENT_ID,
                     "client_secret": HUGGINGFACE_CLIENT_SECRET,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": HUGGINGFACE_REDIRECT_URI  # This must match exactly
+                    "redirect_uri": HUGGINGFACE_REDIRECT_URI
                 },
                 headers={"Accept": "application/json"},
                 timeout=30.0
             )
         
         print(f"Token exchange response status: {token_response.status_code}")
-        print(f"Token exchange response: {token_response.text}")
+        
+        if token_response.status_code == 429:
+            print("HuggingFace rate limit reached during token exchange")
+            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote('HuggingFace is rate limiting requests. Please wait a few minutes and try again.')}"
+            return RedirectResponse(url=error_url)
         
         if token_response.status_code != 200:
-            error_detail = f"Failed to exchange code for token: {token_response.status_code} - {token_response.text}"
-            print(f"OAuth error: {error_detail}")
-            raise HTTPException(status_code=400, detail=error_detail)
+            error_detail = f"Failed to exchange code for token: {token_response.status_code}"
+            print(f"OAuth error: {error_detail} - Response: {token_response.text[:500]}")  # Truncate long responses
+            
+            # Provide user-friendly error messages
+            if token_response.status_code == 400:
+                user_error = "Invalid authorization code. Please try logging in again."
+            elif token_response.status_code == 429:
+                user_error = "Too many requests. Please wait a few minutes and try again."
+            else:
+                user_error = f"Authentication failed ({token_response.status_code}). Please try again."
+            
+            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(user_error)}"
+            return RedirectResponse(url=error_url)
         
         token_data = token_response.json()
         access_token = token_data.get("access_token")
@@ -130,17 +239,31 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
         
-        # Get user info
-        async with httpx.AsyncClient() as client:
-            user_response = await client.get(
-                "https://huggingface.co/api/whoami-v2",
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-        
-        if user_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to get user info")
-        
-        user_info = user_response.json()
+        # Check rate limit before getting user info
+        if not check_rate_limit("oauth_userinfo"):
+            print("Rate limit exceeded for user info request")
+            # Still proceed but skip user info for now, we can get it later
+            user_info = {"name": "Unknown", "email": "unknown@example.com"}
+        else:
+            # Get user info with retry logic
+            async with httpx.AsyncClient() as client:
+                print("Getting user info from HuggingFace...")
+                user_response = await make_hf_request_with_retry(
+                    client,
+                    "GET",
+                    "https://huggingface.co/api/whoami-v2",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=30.0
+                )
+            
+            if user_response.status_code == 429:
+                print("Rate limited on user info request, using minimal user data")
+                user_info = {"name": "Unknown", "email": "unknown@example.com"}
+            elif user_response.status_code != 200:
+                print(f"Failed to get user info: {user_response.status_code}")
+                user_info = {"name": "Unknown", "email": "unknown@example.com"}
+            else:
+                user_info = user_response.json()
         
         # Generate session ID
         session_id = secrets.token_urlsafe(32)
@@ -183,8 +306,13 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         return redirect_response
         
     except Exception as e:
+        print(f"OAuth callback exception: {str(e)}")
         # Redirect to frontend with error
-        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(str(e))}"
+        error_message = "Authentication failed. Please try again."
+        if "rate" in str(e).lower() or "429" in str(e):
+            error_message = "Too many requests. Please wait a few minutes and try again."
+        
+        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
         return RedirectResponse(url=error_url)
 
 @router.post("/logout")
@@ -532,11 +660,15 @@ async def check_token_permissions(request: Request):
     
     hf_token = token_data["access_token"]
     
+    # Check rate limit before making API call
+    if not check_rate_limit("permissions_check"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait a moment and try again.")
+    
     try:
         # Initialize HF API
         api = HfApi(token=hf_token)
         
-        # Get user info including permissions
+        # Get user info including permissions with timeout
         user_info = api.whoami()
         
         # Extract relevant permission information
@@ -557,4 +689,7 @@ async def check_token_permissions(request: Request):
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to check permissions: {str(e)}")
+        error_msg = str(e)
+        if "429" in error_msg or "rate limit" in error_msg.lower():
+            raise HTTPException(status_code=429, detail="HuggingFace rate limit reached. Please wait a few minutes and try again.")
+        raise HTTPException(status_code=500, detail=f"Failed to check permissions: {error_msg}")
