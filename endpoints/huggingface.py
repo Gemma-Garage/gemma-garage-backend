@@ -23,8 +23,10 @@ db = firestore.Client()
 # OAuth configuration
 HUGGINGFACE_CLIENT_ID = os.getenv("HUGGINGFACE_CLIENT_ID")
 HUGGINGFACE_CLIENT_SECRET = os.getenv("HUGGINGFACE_CLIENT_SECRET")
-HUGGINGFACE_REDIRECT_URI = os.getenv("HUGGINGFACE_REDIRECT_URI", "http://localhost:8080/oauth/huggingface/callback")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+# Fix: Use the production backend URL for redirect URI
+HUGGINGFACE_REDIRECT_URI = os.getenv("HUGGINGFACE_REDIRECT_URI", "https://llm-garage-513913820596.us-central1.run.app/oauth/huggingface/callback")
+# Fix: Use the production frontend URL
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://gemma-garage.web.app")
 
 # In-memory storage for OAuth states and tokens (in production, use Redis or database)
 oauth_states = {}
@@ -100,6 +102,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
     try:
         # Exchange code for access token
         async with httpx.AsyncClient() as client:
+            # Fix: Add timeout and better error handling
             token_response = await client.post(
                 "https://huggingface.co/oauth/token",
                 data={
@@ -107,13 +110,19 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                     "client_secret": HUGGINGFACE_CLIENT_SECRET,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": HUGGINGFACE_REDIRECT_URI
+                    "redirect_uri": HUGGINGFACE_REDIRECT_URI  # This must match exactly
                 },
-                headers={"Accept": "application/json"}
+                headers={"Accept": "application/json"},
+                timeout=30.0
             )
         
+        print(f"Token exchange response status: {token_response.status_code}")
+        print(f"Token exchange response: {token_response.text}")
+        
         if token_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to exchange code for token")
+            error_detail = f"Failed to exchange code for token: {token_response.status_code} - {token_response.text}"
+            print(f"OAuth error: {error_detail}")
+            raise HTTPException(status_code=400, detail=error_detail)
         
         token_data = token_response.json()
         access_token = token_data.get("access_token")
