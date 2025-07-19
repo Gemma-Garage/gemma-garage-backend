@@ -13,7 +13,8 @@ import json
 import secrets
 import urllib.parse
 from datetime import datetime, timedelta
-from huggingface_hub import HfApi, upload_file, upload_folder, create_repo, parse_huggingface_oauth
+from huggingface_hub import HfApi, upload_file, upload_folder, create_repo
+from huggingface_hub._oauth import parse_huggingface_oauth
 from config_vars import NEW_DATA_BUCKET
 
 router = APIRouter()
