@@ -366,11 +366,13 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 user_info = user_response.json()
                 print(f"Raw user info response: {user_info}")
                 # Sanitize the username for repository naming
-                original_username = user_info.get('preferred_username', user_info.get('name', 'Unknown'))
-                user_info['username'] = sanitize_username(original_username)
-                user_info['display_name'] = user_info.get('name', original_username)
+                preferred_username = user_info.get('preferred_username', user_info.get('name', 'Unknown'))
+                # Remove spaces (shouldn't be present, but just in case)
+                username = preferred_username.replace(' ', '')
+                user_info['username'] = username
+                user_info['display_name'] = user_info.get('name', preferred_username)
                 user_info['name'] = user_info['display_name']
-                print(f"Retrieved user info: {original_username} -> sanitized to: {user_info['username']}")
+                print(f"Retrieved user info: {preferred_username} -> sanitized to: {user_info['username']}")
             else:
                 print(f"User info request failed: {user_response.status_code}")
                 print(f"Error response: {user_response.text}")
@@ -535,7 +537,7 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
     hf_token = token_data["access_token"]
     user_info = token_data["user_info"]
     
-    hf_username = user_info["username"]
+    hf_username = user_info['username']
     
     # Initialize HF API
     api = HfApi(token=hf_token)
