@@ -256,7 +256,17 @@ async def huggingface_callback(code: str, state: str, request: Request, response
     
     # Clean up old states (older than 10 minutes)
     current_time = datetime.now()
-    oauth_states.clear()  # Simple cleanup for demo
+    # Only remove the current state, not all states
+    if state in oauth_states:
+        del oauth_states[state]
+    
+    # Clean up expired states (older than 10 minutes)
+    expired_states = [
+        s for s, data in oauth_states.items()
+        if (current_time - data["timestamp"]).total_seconds() > 600  # 10 minutes
+    ]
+    for expired_state in expired_states:
+        del oauth_states[expired_state]
     
     try:
         # Exchange code for access token - single request only
@@ -292,17 +302,34 @@ async def huggingface_callback(code: str, state: str, request: Request, response
             print(f"Response body: {response_text}")
             print(f"Request data sent: client_id={HUGGINGFACE_CLIENT_ID[:8]}..., redirect_uri={HUGGINGFACE_REDIRECT_URI}")
             
-            # Provide user-friendly error messages
-            if token_response.status_code == 400:
-                user_error = "Invalid authorization code. Please try logging in again."
-            elif token_response.status_code == 429:
-                user_error = "Too many requests. Please wait a few minutes and try again."
-            elif token_response.status_code == 401:
-                user_error = "Invalid client credentials. Please check OAuth configuration."
-            elif token_response.status_code == 403:
-                user_error = "Access denied. Please check your HuggingFace app permissions."
-            else:
-                user_error = f"Authentication failed ({token_response.status_code}). Please try again."
+            # Provide user-friendly error messages based on response
+            try:
+                error_data = token_response.json()
+                error_type = error_data.get("error", "unknown_error")
+                error_description = error_data.get("error_description", "")
+                
+                if error_type == "invalid_grant":
+                    user_error = "Authorization code expired or already used. Please try logging in again."
+                elif error_type == "invalid_client":
+                    user_error = "Invalid client credentials. Please check OAuth configuration."
+                elif error_type == "invalid_request":
+                    user_error = f"Invalid request: {error_description}"
+                elif error_type == "unauthorized_client":
+                    user_error = "App not authorized for this scope. Please check HuggingFace app settings."
+                else:
+                    user_error = f"OAuth error: {error_type} - {error_description}"
+            except:
+                # Fallback to status code based messages
+                if token_response.status_code == 400:
+                    user_error = "Invalid authorization code. Please try logging in again."
+                elif token_response.status_code == 429:
+                    user_error = "Too many requests. Please wait a few minutes and try again."
+                elif token_response.status_code == 401:
+                    user_error = "Invalid client credentials. Please check OAuth configuration."
+                elif token_response.status_code == 403:
+                    user_error = "Access denied. Please check your HuggingFace app permissions."
+                else:
+                    user_error = f"Authentication failed ({token_response.status_code}). Please try again."
             
             error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(user_error)}"
             return RedirectResponse(url=error_url)
@@ -313,15 +340,26 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
         
+        print(f"Token exchange successful. Token type: {token_data.get('token_type', 'unknown')}")
+        print(f"Token expires in: {token_data.get('expires_in', 'unknown')} seconds")
+        print(f"Token scopes: {token_data.get('scope', 'unknown')}")
+        
         # Get user info from HuggingFace API - required for OAuth success
         try:
             print(f"Attempting to get user info with access token: {access_token[:10]}...")
+            
+            # Try different Authorization header formats
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+            
             async with httpx.AsyncClient() as client:
                 user_response = await make_hf_request_with_retry(
                     client,
                     "GET",
                     "https://huggingface.co/api/whoami",
-                    headers={"Authorization": f"Bearer {access_token}"},
+                    headers=headers,
                     timeout=10.0
                 )
             
@@ -338,17 +376,54 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 print(f"User info request failed: {user_response.status_code}")
                 print(f"Error response: {user_response.text}")
                 print(f"Response headers: {dict(user_response.headers)}")
-                # OAuth failed - user info is required
-                error_message = f"HuggingFace API error: {user_response.status_code}"
-                if user_response.status_code == 429:
-                    error_message = "HuggingFace is rate limiting requests. Please wait a few minutes and try again."
-                elif user_response.status_code == 401:
-                    error_message = "Authentication failed. Please try logging in again."
-                elif user_response.status_code == 403:
-                    error_message = "Access denied. Please check your HuggingFace account permissions."
                 
-                error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
-                return RedirectResponse(url=error_url)
+                # Try alternative Authorization header format if first attempt failed
+                if user_response.status_code == 401:
+                    print("Trying alternative Authorization header format...")
+                    try:
+                        # Try without "Bearer " prefix
+                        alt_headers = {
+                            "Authorization": access_token,
+                            "Accept": "application/json"
+                        }
+                        
+                        alt_response = await make_hf_request_with_retry(
+                            client,
+                            "GET",
+                            "https://huggingface.co/api/whoami",
+                            headers=alt_headers,
+                            timeout=10.0
+                        )
+                        
+                        print(f"Alternative format response status: {alt_response.status_code}")
+                        
+                        if alt_response.status_code == 200:
+                            user_info = alt_response.json()
+                            print(f"Raw user info response (alt): {user_info}")
+                            original_name = user_info.get('name', 'Unknown')
+                            user_info['name'] = sanitize_username(original_name)
+                            print(f"Retrieved user info (alt): {original_name} -> sanitized to: {user_info['name']}")
+                        else:
+                            print(f"Alternative format also failed: {alt_response.status_code}")
+                            print(f"Alt error response: {alt_response.text}")
+                            raise Exception("Both Authorization header formats failed")
+                            
+                    except Exception as alt_error:
+                        print(f"Alternative format attempt failed: {alt_error}")
+                        # OAuth failed - user info is required
+                        error_message = f"Authentication failed. Please try logging in again."
+                        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
+                        return RedirectResponse(url=error_url)
+                else:
+                    # OAuth failed - user info is required
+                    error_message = f"HuggingFace API error: {user_response.status_code}"
+                    if user_response.status_code == 429:
+                        error_message = "HuggingFace is rate limiting requests. Please wait a few minutes and try again."
+                    elif user_response.status_code == 403:
+                        error_message = "Access denied. Please check your HuggingFace account permissions."
+                    
+                    error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
+                    return RedirectResponse(url=error_url)
         except Exception as user_error:
             print(f"User info request error: {user_error}")
             # OAuth failed due to user info error
