@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from endpoints import model, dataset, finetune, download, inference, ingest, huggingface
+from huggingface_hub import attach_huggingface_oauth
 
 app = FastAPI(title="LLM Garage API")
 
@@ -17,6 +18,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add official Hugging Face OAuth endpoints
+attach_huggingface_oauth(app)
 
 app.include_router(model.router, prefix="/model", tags=["Model"])
 app.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])

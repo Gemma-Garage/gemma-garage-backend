@@ -13,7 +13,7 @@ import json
 import secrets
 import urllib.parse
 from datetime import datetime, timedelta
-from huggingface_hub import HfApi, upload_file, upload_folder, create_repo
+from huggingface_hub import HfApi, upload_file, upload_folder, create_repo, parse_huggingface_oauth
 from config_vars import NEW_DATA_BUCKET
 
 router = APIRouter()
@@ -28,10 +28,6 @@ HUGGINGFACE_CLIENT_SECRET = os.getenv("HUGGINGFACE_CLIENT_SECRET")
 HUGGINGFACE_REDIRECT_URI = os.getenv("HUGGINGFACE_REDIRECT_URI", "https://llm-garage-513913820596.us-central1.run.app/oauth/huggingface/callback")
 # Fix: Use the production frontend URL
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://gemma-garage.web.app")
-
-# In-memory storage for OAuth states and tokens (in production, use Redis or database)
-oauth_states = {}
-user_tokens = {}
 
 # Rate limiting tracking
 api_call_history = {}
@@ -124,212 +120,6 @@ async def get_rate_limit_status():
         "max_calls_per_minute": MAX_CALLS_PER_MINUTE
     }
 
-@router.get("/login")
-async def huggingface_login(request: Request, request_id: str = None):
-    """Initiate Hugging Face OAuth login."""
-    
-    if not HUGGINGFACE_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Hugging Face OAuth not configured")
-    
-    # Generate state parameter for security
-    state = secrets.token_urlsafe(32)
-    oauth_states[state] = {
-        "timestamp": datetime.now(),
-        "request_id": request_id  # Store request_id to use after callback
-    }
-    
-    # Build OAuth URL
-    params = {
-        "client_id": HUGGINGFACE_CLIENT_ID,
-        "redirect_uri": HUGGINGFACE_REDIRECT_URI,
-        "scope": "read-repos write-repos manage-repos inference-api",
-        "state": state,
-        "response_type": "code"
-    }
-    
-    oauth_url = f"https://huggingface.co/oauth/authorize?{urllib.parse.urlencode(params)}"
-    
-    # Redirect directly to Hugging Face OAuth
-    return RedirectResponse(url=oauth_url)
-
-@router.get("/callback")
-async def huggingface_callback(code: str, state: str, request: Request, response: Response):
-    """Handle Hugging Face OAuth callback."""
-    
-    # Verify state parameter
-    if state not in oauth_states:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-    
-    # Get request_id from stored state
-    stored_state = oauth_states[state]
-    request_id = stored_state.get("request_id")
-    
-    # Clean up old states (older than 10 minutes)
-    current_time = datetime.now()
-    oauth_states.clear()  # Simple cleanup for demo
-    
-    try:
-        # Exchange code for access token - single request only
-        async with httpx.AsyncClient() as client:
-            print("Attempting token exchange with HuggingFace...")
-            token_response = await make_hf_request_with_retry(
-                client,
-                "POST",
-                "https://huggingface.co/oauth/token",
-                data={
-                    "client_id": HUGGINGFACE_CLIENT_ID,
-                    "client_secret": HUGGINGFACE_CLIENT_SECRET,
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": HUGGINGFACE_REDIRECT_URI
-                },
-                headers={"Accept": "application/json"},
-                timeout=30.0
-            )
-        
-        print(f"Token exchange response status: {token_response.status_code}")
-        
-        if token_response.status_code == 429:
-            print("HuggingFace rate limit reached during token exchange")
-            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote('HuggingFace is rate limiting requests. Please wait a few minutes and try again.')}"
-            return RedirectResponse(url=error_url)
-        
-        if token_response.status_code != 200:
-            error_detail = f"Failed to exchange code for token: {token_response.status_code}"
-            print(f"OAuth error: {error_detail} - Response: {token_response.text[:500]}")  # Truncate long responses
-            
-            # Provide user-friendly error messages
-            if token_response.status_code == 400:
-                user_error = "Invalid authorization code. Please try logging in again."
-            elif token_response.status_code == 429:
-                user_error = "Too many requests. Please wait a few minutes and try again."
-            else:
-                user_error = f"Authentication failed ({token_response.status_code}). Please try again."
-            
-            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(user_error)}"
-            return RedirectResponse(url=error_url)
-        
-        token_data = token_response.json()
-        access_token = token_data.get("access_token")
-        
-        if not access_token:
-            raise HTTPException(status_code=400, detail="No access token received")
-        
-                # Get user info from HuggingFace API - required for OAuth success
-        try:
-            print(f"Attempting to get user info with access token: {access_token[:10]}...")
-            async with httpx.AsyncClient() as client:
-                user_response = await make_hf_request_with_retry(
-                    client,
-                    "GET",
-                    "https://huggingface.co/api/whoami",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    timeout=10.0
-                )
-            
-            print(f"User info response status: {user_response.status_code}")
-            
-            if user_response.status_code == 200:
-                user_info = user_response.json()
-                print(f"Raw user info response: {user_info}")
-                # Sanitize the username for repository naming
-                original_name = user_info.get('name', 'Unknown')
-                user_info['name'] = sanitize_username(original_name)
-                print(f"Retrieved user info: {original_name} -> sanitized to: {user_info['name']}")
-            else:
-                print(f"User info request failed: {user_response.status_code}")
-                print(f"Error response: {user_response.text}")
-                print(f"Response headers: {dict(user_response.headers)}")
-                # OAuth failed - user info is required
-                error_message = f"HuggingFace API error: {user_response.status_code}"
-                if user_response.status_code == 429:
-                    error_message = "HuggingFace is rate limiting requests. Please wait a few minutes and try again."
-                elif user_response.status_code == 401:
-                    error_message = "Authentication failed. Please try logging in again."
-                elif user_response.status_code == 403:
-                    error_message = "Access denied. Please check your HuggingFace account permissions."
-                
-                error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
-                return RedirectResponse(url=error_url)
-        except Exception as user_error:
-            print(f"User info request error: {user_error}")
-            # OAuth failed due to user info error
-            error_message = f"Failed to retrieve user info: {str(user_error)}"
-            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
-            return RedirectResponse(url=error_url)
-        
-        # Generate session ID
-        session_id = secrets.token_urlsafe(32)
-        
-        # Store token and user info
-        user_tokens[session_id] = {
-            "access_token": access_token,
-            "user_info": user_info,
-            "expires_at": current_time + timedelta(hours=1),  # 1 hour expiration
-            "timestamp": current_time,
-            "user_info_loaded": False  # Flag to indicate we need to load user info later
-        }
-        
-        print(f"OAuth callback: Stored session {session_id} for user {user_info.get('name', 'Unknown')}")
-        print(f"Total stored sessions: {len(user_tokens)}")
-        
-        # Create redirect response first
-        if request_id:
-            # Include session token in URL for cross-origin scenarios
-            redirect_url = f"{FRONTEND_URL}/project/{request_id}?hf_connected=true&session_token={session_id}"
-        else:
-            redirect_url = f"{FRONTEND_URL}/huggingface-test?success=true&session_token={session_id}"
-            
-        # For debugging: let's try setting the cookie differently
-        redirect_response = RedirectResponse(url=redirect_url)
-        
-        # Set session cookie on the redirect response
-        # Determine if we're in production (HTTPS) or development (HTTP)
-        is_https = request.url.scheme == "https" or "localhost" not in str(request.url.hostname)
-        
-        redirect_response.set_cookie(
-            key="hf_session",
-            value=session_id,
-            max_age=3600,  # 1 hour
-            httponly=False,  # Allow JS access for debugging
-            secure=is_https,  # Only secure in production
-            samesite="lax" if not is_https else "none",  # Use lax for development, none for production
-            domain=None,    # Don't set domain to allow cross-origin
-            path="/"        # Set root path
-        )
-        
-        print(f"OAuth callback: Redirecting to {redirect_url} with session cookie {session_id}")
-        return redirect_response
-        
-    except Exception as e:
-        print(f"OAuth callback exception: {str(e)}")
-        # Redirect to frontend with error
-        error_message = "Authentication failed. Please try again."
-        if "rate" in str(e).lower() or "429" in str(e):
-            error_message = "Too many requests. Please wait a few minutes and try again."
-        
-        error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
-        return RedirectResponse(url=error_url)
-
-@router.post("/logout")
-async def huggingface_logout(request: Request, response: Response):
-    """Log out from Hugging Face."""
-    
-    # Try to get session ID from cookie or Authorization header
-    session_id = request.cookies.get("hf_session")
-    if not session_id:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_id = auth_header[7:]  # Remove "Bearer " prefix
-    
-    if session_id and session_id in user_tokens:
-        del user_tokens[session_id]
-        print(f"Logout: Removed session {session_id}")
-    
-    response.delete_cookie("hf_session")
-    
-    return {"success": True, "message": "Logged out successfully"}
-
 def sanitize_username(username: str) -> str:
     """Sanitize username for HuggingFace repository naming."""
     if not username:
@@ -354,81 +144,41 @@ def sanitize_username(username: str) -> str:
     
     return sanitized
 
-async def get_user_info_from_hf(access_token: str) -> dict:
-    """Get user info from HuggingFace API with retry logic."""
+def get_oauth_info(request: Request):
+    """Get OAuth info using the official Hugging Face OAuth library."""
     try:
-        print(f"Retrying user info retrieval with token: {access_token[:10]}...")
-        async with httpx.AsyncClient() as client:
-            user_response = await make_hf_request_with_retry(
-                client,
-                "GET",
-                "https://huggingface.co/api/whoami",
-                headers={"Authorization": f"Bearer {access_token}"},
-                timeout=10.0
-            )
-        
-        if user_response.status_code == 200:
-            user_info = user_response.json()
-            print(f"Successfully retrieved user info: {user_info.get('name', 'Unknown')}")
-            return user_info
-        elif user_response.status_code == 429:
-            print("Rate limited by HuggingFace during user info retrieval")
-            raise HTTPException(
-                status_code=429, 
-                detail="HuggingFace is rate limiting requests. Please wait a few minutes and try again."
-            )
-        else:
-            print(f"Failed to get user info on retry: {user_response.status_code}")
-            print(f"Error response: {user_response.text}")
+        oauth_info = parse_huggingface_oauth(request)
+        if oauth_info is None:
             return None
-    except HTTPException:
-        # Re-raise HTTP exceptions (like rate limiting)
-        raise
+        
+        # Convert to our expected format
+        return {
+            "access_token": oauth_info.access_token,
+            "user_info": {
+                "name": oauth_info.user_info.preferred_username,
+                "email": oauth_info.user_info.email,
+                "picture": oauth_info.user_info.picture,
+                "isPro": oauth_info.user_info.is_pro,
+                "sub": oauth_info.user_info.sub
+            },
+            "expires_at": oauth_info.access_token_expires_at,
+            "scope": oauth_info.scope
+        }
     except Exception as e:
-        print(f"Error getting user info on retry: {e}")
+        print(f"Error parsing OAuth info: {e}")
         return None
-
-def get_user_token(request: Request):
-    """Get user token from session cookie or Authorization header."""
-    # Try cookie first
-    session_id = request.cookies.get("hf_session")
-    
-    # If no cookie, try Authorization header
-    if not session_id:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_id = auth_header[7:]  # Remove "Bearer " prefix
-    
-    if not session_id or session_id not in user_tokens:
-        return None
-    
-    token_data = user_tokens[session_id]
-    
-    # Check if token is expired
-    if datetime.now() > token_data["expires_at"]:
-        del user_tokens[session_id]
-        return None
-    
-    return token_data
 
 @router.post("/upload_model")
 async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request):
     """Upload a fine-tuned model to Hugging Face."""
     
-    # Get user token
-    token_data = get_user_token(fastapi_request)
-    if not token_data:
+    # Get OAuth info using official library
+    oauth_data = get_oauth_info(fastapi_request)
+    if not oauth_data:
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
     
-    hf_token = token_data["access_token"]
-    user_info = token_data["user_info"]
-    
-    # User info should already be available from OAuth
-    if not user_info or user_info.get("is_placeholder", False):
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid user info. Please reconnect to HuggingFace."
-        )
+    hf_token = oauth_data["access_token"]
+    user_info = oauth_data["user_info"]
     
     hf_username = sanitize_username(user_info["name"])
     
@@ -615,12 +365,12 @@ For more information about Gemma Garage, visit [our GitHub repository](https://g
 async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
     """Run inference using Hugging Face Inference API."""
     
-    # Get user token
-    token_data = get_user_token(fastapi_request)
-    if not token_data:
+    # Get OAuth info using official library
+    oauth_data = get_oauth_info(fastapi_request)
+    if not oauth_data:
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
     
-    hf_token = token_data["access_token"]
+    hf_token = oauth_data["access_token"]
     
     # Call Hugging Face Inference API
     async with httpx.AsyncClient() as client:
@@ -663,45 +413,17 @@ async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
 async def get_hf_connection_status(request: Request):
     """Get Hugging Face connection status for the current user."""
     
-    # Debug: Print all cookies
-    print(f"Status check: All cookies: {dict(request.cookies)}")
+    # Use official OAuth library to get user info
+    oauth_data = get_oauth_info(request)
     
-    # Try cookie first
-    session_id = request.cookies.get("hf_session")
-    source = "cookie"
-    
-    # If no cookie, try Authorization header
-    if not session_id:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            session_id = auth_header[7:]  # Remove "Bearer " prefix
-            source = "header"
-    
-    print(f"Status check: Session ID from {source}: {session_id}")
-    print(f"Available sessions: {list(user_tokens.keys())}")
-    print(f"Session ID in available sessions: {session_id in user_tokens if session_id else False}")
-    
-    token_data = get_user_token(request)
-    
-    if not token_data:
-        print("Status check: No valid token data found")
+    if not oauth_data:
         return {
             "connected": False,
             "username": None,
-            "user_info": None,
-            "debug": {
-                "session_id": session_id,
-                "source": source,
-                "available_sessions": list(user_tokens.keys())
-            }
+            "user_info": None
         }
     
-    user_info = token_data["user_info"]
-    is_placeholder = user_info.get("is_placeholder", False)
-    needs_retry = user_info.get("needs_retry", False)
-    
-    print(f"Status check: Returning connected status for user {user_info.get('name', 'Unknown')}")
-    print(f"Status check: is_placeholder={is_placeholder}, needs_retry={needs_retry}")
+    user_info = oauth_data["user_info"]
     
     return {
         "connected": True,
@@ -710,29 +432,21 @@ async def get_hf_connection_status(request: Request):
             "name": user_info.get("name", ""),
             "email": user_info.get("email", ""),
             "picture": user_info.get("picture", ""),
-            "is_pro": user_info.get("isPro", False),
-            "is_placeholder": is_placeholder,
-            "needs_retry": needs_retry,
-            "note": user_info.get("note", "")
+            "is_pro": user_info.get("isPro", False)
         },
-        "expires_at": token_data["expires_at"].isoformat(),
-        "debug": {
-            "session_id": session_id,
-            "source": source,
-            "available_sessions": list(user_tokens.keys())
-        }
+        "expires_at": oauth_data["expires_at"].isoformat()
     }
 
 @router.get("/token-permissions")
 async def check_token_permissions(request: Request):
     """Check what permissions the current HF token has."""
     
-    # Get user token
-    token_data = get_user_token(request)
-    if not token_data:
+    # Get OAuth info using official library
+    oauth_data = get_oauth_info(request)
+    if not oauth_data:
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
     
-    hf_token = token_data["access_token"]
+    hf_token = oauth_data["access_token"]
     
     # Check rate limit before making API call
     if not check_rate_limit("permissions_check"):
