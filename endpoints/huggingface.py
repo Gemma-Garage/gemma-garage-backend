@@ -366,9 +366,11 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 user_info = user_response.json()
                 print(f"Raw user info response: {user_info}")
                 # Sanitize the username for repository naming
-                original_name = user_info.get('name', 'Unknown')
-                user_info['name'] = sanitize_username(original_name)
-                print(f"Retrieved user info: {original_name} -> sanitized to: {user_info['name']}")
+                original_username = user_info.get('preferred_username', user_info.get('name', 'Unknown'))
+                user_info['username'] = sanitize_username(original_username)
+                user_info['display_name'] = user_info.get('name', original_username)
+                user_info['name'] = user_info['display_name']
+                print(f"Retrieved user info: {original_username} -> sanitized to: {user_info['username']}")
             else:
                 print(f"User info request failed: {user_response.status_code}")
                 print(f"Error response: {user_response.text}")
@@ -397,9 +399,11 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                         if alt_response.status_code == 200:
                             user_info = alt_response.json()
                             print(f"Raw user info response (alt): {user_info}")
-                            original_name = user_info.get('name', 'Unknown')
-                            user_info['name'] = sanitize_username(original_name)
-                            print(f"Retrieved user info (alt): {original_name} -> sanitized to: {user_info['name']}")
+                            original_username = user_info.get('preferred_username', user_info.get('name', 'Unknown'))
+                            user_info['username'] = sanitize_username(original_username)
+                            user_info['display_name'] = user_info.get('name', original_username)
+                            user_info['name'] = user_info['display_name']
+                            print(f"Retrieved user info (alt): {original_username} -> sanitized to: {user_info['username']}")
                         else:
                             print(f"Alternative format also failed: {alt_response.status_code}")
                             print(f"Alt error response: {alt_response.text}")
@@ -531,7 +535,7 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
     hf_token = token_data["access_token"]
     user_info = token_data["user_info"]
     
-    hf_username = sanitize_username(user_info["name"])
+    hf_username = user_info["username"]
     
     # Initialize HF API
     api = HfApi(token=hf_token)
