@@ -275,14 +275,16 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         redirect_response = RedirectResponse(url=redirect_url)
         
         # Set session cookie on the redirect response
-        # Use domain and path settings appropriate for cross-origin
+        # Determine if we're in production (HTTPS) or development (HTTP)
+        is_https = request.url.scheme == "https" or "localhost" not in str(request.url.hostname)
+        
         redirect_response.set_cookie(
             key="hf_session",
             value=session_id,
             max_age=3600,  # 1 hour
             httponly=False,  # Allow JS access for debugging
-            secure=True,    # Set to True for production with HTTPS (required for cross-origin)
-            samesite="none",  # Allow cross-site usage (required for cross-origin)
+            secure=is_https,  # Only secure in production
+            samesite="lax" if not is_https else "none",  # Use lax for development, none for production
             domain=None,    # Don't set domain to allow cross-origin
             path="/"        # Set root path
         )
@@ -609,6 +611,9 @@ async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
 async def get_hf_connection_status(request: Request):
     """Get Hugging Face connection status for the current user."""
     
+    # Debug: Print all cookies
+    print(f"Status check: All cookies: {dict(request.cookies)}")
+    
     # Try cookie first
     session_id = request.cookies.get("hf_session")
     source = "cookie"
@@ -622,6 +627,7 @@ async def get_hf_connection_status(request: Request):
     
     print(f"Status check: Session ID from {source}: {session_id}")
     print(f"Available sessions: {list(user_tokens.keys())}")
+    print(f"Session ID in available sessions: {session_id in user_tokens if session_id else False}")
     
     token_data = get_user_token(request)
     
