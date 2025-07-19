@@ -216,7 +216,9 @@ async def huggingface_callback(code: str, state: str, request: Request, response
             raise HTTPException(status_code=400, detail="No access token received")
         
         # Get user info from HuggingFace API
+        user_info = None
         try:
+            print(f"Attempting to get user info with access token: {access_token[:10]}...")
             async with httpx.AsyncClient() as client:
                 user_response = await make_hf_request_with_retry(
                     client,
@@ -226,28 +228,41 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                     timeout=10.0
                 )
             
+            print(f"User info response status: {user_response.status_code}")
+            print(f"User info response headers: {dict(user_response.headers)}")
+            
             if user_response.status_code == 200:
                 user_info = user_response.json()
+                print(f"Raw user info response: {user_info}")
                 # Sanitize the username for repository naming
                 original_name = user_info.get('name', 'Unknown')
                 user_info['name'] = sanitize_username(original_name)
                 print(f"Retrieved user info: {original_name} -> sanitized to: {user_info['name']}")
+            elif user_response.status_code == 429:
+                print("Rate limited by HuggingFace during OAuth user info retrieval")
+                # Don't fail OAuth, but mark for retry
+                user_info = None
+                print("OAuth will continue with placeholder username, will retry user info later")
             else:
-                # Fallback to placeholder if user info retrieval fails
-                user_info = {
-                    "name": "huggingface-user",  # Use valid username format
-                    "email": "user@huggingface.co",
-                    "note": "User info retrieval failed, using fallback"
-                }
                 print(f"Failed to get user info: {user_response.status_code}")
+                print(f"Error response: {user_response.text}")
+                # Don't set fallback yet, we'll try again later
+                user_info = None
         except Exception as user_error:
             print(f"Error getting user info: {user_error}")
-            # Fallback to valid username format
+            print(f"Error type: {type(user_error)}")
+            # Don't set fallback yet, we'll try again later
+            user_info = None
+        
+        # If user info retrieval failed, use placeholder but mark for retry
+        if not user_info:
             user_info = {
-                "name": "huggingface-user",  # Use valid username format
+                "name": "huggingface-user",  # Temporary placeholder
                 "email": "user@huggingface.co",
-                "note": "User info retrieval failed, using fallback"
+                "note": "User info retrieval failed during OAuth, will retry later",
+                "needs_retry": True  # Flag to indicate we need to retry
             }
+            print("Using fallback user info, will retry user info retrieval later")
         
         # Generate session ID
         session_id = secrets.token_urlsafe(32)
@@ -345,6 +360,40 @@ def sanitize_username(username: str) -> str:
     
     return sanitized
 
+async def get_user_info_from_hf(access_token: str) -> dict:
+    """Get user info from HuggingFace API with retry logic."""
+    try:
+        print(f"Retrying user info retrieval with token: {access_token[:10]}...")
+        async with httpx.AsyncClient() as client:
+            user_response = await make_hf_request_with_retry(
+                client,
+                "GET",
+                "https://huggingface.co/api/whoami",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0
+            )
+        
+        if user_response.status_code == 200:
+            user_info = user_response.json()
+            print(f"Successfully retrieved user info: {user_info.get('name', 'Unknown')}")
+            return user_info
+        elif user_response.status_code == 429:
+            print("Rate limited by HuggingFace during user info retrieval")
+            raise HTTPException(
+                status_code=429, 
+                detail="HuggingFace is rate limiting requests. Please wait a few minutes and try again."
+            )
+        else:
+            print(f"Failed to get user info on retry: {user_response.status_code}")
+            print(f"Error response: {user_response.text}")
+            return None
+    except HTTPException:
+        # Re-raise HTTP exceptions (like rate limiting)
+        raise
+    except Exception as e:
+        print(f"Error getting user info on retry: {e}")
+        return None
+
 def get_user_token(request: Request):
     """Get user token from session cookie or Authorization header."""
     # Try cookie first
@@ -378,7 +427,37 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
     
     hf_token = token_data["access_token"]
-    hf_username = sanitize_username(token_data["user_info"]["name"])
+    user_info = token_data["user_info"]
+    
+    # If user info needs retry, try to get it now
+    if user_info.get("needs_retry", False):
+        print("User info needs retry, attempting to get real user info...")
+        try:
+            real_user_info = await get_user_info_from_hf(hf_token)
+            if real_user_info:
+                # Update the stored user info
+                user_info = real_user_info
+                user_info['name'] = sanitize_username(user_info.get('name', 'Unknown'))
+                # Update the stored token data
+                token_data["user_info"] = user_info
+                print(f"Updated user info: {user_info.get('name', 'Unknown')}")
+            else:
+                print("Failed to get real user info, using fallback")
+        except HTTPException as e:
+            if e.status_code == 429:
+                # Rate limited - provide clear error message
+                raise HTTPException(
+                    status_code=429,
+                    detail="HuggingFace is rate limiting requests. Please wait a few minutes and try uploading again."
+                )
+            else:
+                # Re-raise other HTTP exceptions
+                raise
+        except Exception as e:
+            print(f"Unexpected error getting user info: {e}")
+            print("Using fallback username")
+    
+    hf_username = sanitize_username(user_info["name"])
     
     # Initialize HF API
     api = HfApi(token=hf_token)
