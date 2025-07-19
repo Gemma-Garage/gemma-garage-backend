@@ -124,6 +124,72 @@ async def get_rate_limit_status():
         "max_calls_per_minute": MAX_CALLS_PER_MINUTE
     }
 
+@router.get("/debug-oauth")
+async def debug_oauth_config():
+    """Debug OAuth configuration and test connectivity."""
+    debug_info = {
+        "client_id_configured": bool(HUGGINGFACE_CLIENT_ID),
+        "client_secret_configured": bool(HUGGINGFACE_CLIENT_SECRET),
+        "redirect_uri": HUGGINGFACE_REDIRECT_URI,
+        "frontend_url": FRONTEND_URL,
+        "client_id_preview": HUGGINGFACE_CLIENT_ID[:8] + "..." if HUGGINGFACE_CLIENT_ID else None,
+        "client_secret_preview": HUGGINGFACE_CLIENT_SECRET[:8] + "..." if HUGGINGFACE_CLIENT_SECRET else None,
+        "oauth_states_count": len(oauth_states),
+        "user_tokens_count": len(user_tokens),
+        "environment": {
+            "SPACE_ID": os.getenv("SPACE_ID"),
+            "HF_HUB_ENDPOINT": os.getenv("HF_HUB_ENDPOINT"),
+            "NODE_ENV": os.getenv("NODE_ENV"),
+        }
+    }
+    
+    # Test basic connectivity to HuggingFace
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://huggingface.co/api/whoami", timeout=5.0)
+            debug_info["hf_connectivity"] = {
+                "status": "success",
+                "response_code": response.status_code
+            }
+    except Exception as e:
+        debug_info["hf_connectivity"] = {
+            "status": "error",
+            "error": str(e)
+        }
+    
+    return debug_info
+
+@router.get("/test-oauth-flow")
+async def test_oauth_flow():
+    """Test the OAuth flow by generating a login URL."""
+    if not HUGGINGFACE_CLIENT_ID:
+        return {"error": "Client ID not configured"}
+    
+    # Generate state parameter for security
+    state = secrets.token_urlsafe(32)
+    oauth_states[state] = {
+        "timestamp": datetime.now(),
+        "request_id": "test-flow"
+    }
+    
+    # Build OAuth URL
+    params = {
+        "client_id": HUGGINGFACE_CLIENT_ID,
+        "redirect_uri": HUGGINGFACE_REDIRECT_URI,
+        "scope": "read-repos write-repos manage-repos inference-api",
+        "state": state,
+        "response_type": "code"
+    }
+    
+    oauth_url = f"https://huggingface.co/oauth/authorize?{urllib.parse.urlencode(params)}"
+    
+    return {
+        "oauth_url": oauth_url,
+        "state": state,
+        "params": params,
+        "redirect_uri": HUGGINGFACE_REDIRECT_URI
+    }
+
 def sanitize_username(username: str) -> str:
     """Sanitize username for HuggingFace repository naming."""
     if not username:
@@ -220,13 +286,21 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         
         if token_response.status_code != 200:
             error_detail = f"Failed to exchange code for token: {token_response.status_code}"
-            print(f"OAuth error: {error_detail} - Response: {token_response.text[:500]}")  # Truncate long responses
+            response_text = token_response.text[:1000]  # Get more of the response for debugging
+            print(f"OAuth error: {error_detail}")
+            print(f"Response headers: {dict(token_response.headers)}")
+            print(f"Response body: {response_text}")
+            print(f"Request data sent: client_id={HUGGINGFACE_CLIENT_ID[:8]}..., redirect_uri={HUGGINGFACE_REDIRECT_URI}")
             
             # Provide user-friendly error messages
             if token_response.status_code == 400:
                 user_error = "Invalid authorization code. Please try logging in again."
             elif token_response.status_code == 429:
                 user_error = "Too many requests. Please wait a few minutes and try again."
+            elif token_response.status_code == 401:
+                user_error = "Invalid client credentials. Please check OAuth configuration."
+            elif token_response.status_code == 403:
+                user_error = "Access denied. Please check your HuggingFace app permissions."
             else:
                 user_error = f"Authentication failed ({token_response.status_code}). Please try again."
             
