@@ -29,7 +29,9 @@ def submit_finetuning_job(
     epochs: int,
     learning_rate: float,
     lora_rank: int = 4,
-    request_id: str = None):
+    request_id: str = None,
+    custom_rubric: str = "",
+    job_type: str = "supervised"):
 
     job_name = "llm-garage-finetune"
     project_id = "llm-garage"
@@ -44,8 +46,13 @@ def submit_finetuning_job(
     "learning_rate": learning_rate,
     "lora_rank": lora_rank,
     "request_id": request_id,
-    "project_id": project_id
+    "project_id": project_id,
+    "job_type": job_type
     }
+    
+    # Add custom rubric for RL jobs
+    if job_type == "rl_finetuning" and custom_rubric:
+        args["custom_rubric"] = custom_rubric
     args_list = [f"--{key}={value}" for key, value in args.items() if value is not None]
 
     command = [
