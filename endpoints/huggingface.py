@@ -215,8 +215,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
         
-        # Get user info from HuggingFace API
-        user_info = None
+                # Get user info from HuggingFace API - required for OAuth success
         try:
             print(f"Attempting to get user info with access token: {access_token[:10]}...")
             async with httpx.AsyncClient() as client:
@@ -229,7 +228,6 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 )
             
             print(f"User info response status: {user_response.status_code}")
-            print(f"User info response headers: {dict(user_response.headers)}")
             
             if user_response.status_code == 200:
                 user_info = user_response.json()
@@ -238,31 +236,27 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 original_name = user_info.get('name', 'Unknown')
                 user_info['name'] = sanitize_username(original_name)
                 print(f"Retrieved user info: {original_name} -> sanitized to: {user_info['name']}")
-            elif user_response.status_code == 429:
-                print("Rate limited by HuggingFace during OAuth user info retrieval")
-                # Don't fail OAuth, but mark for retry
-                user_info = None
-                print("OAuth will continue with placeholder username, will retry user info later")
             else:
-                print(f"Failed to get user info: {user_response.status_code}")
+                print(f"User info request failed: {user_response.status_code}")
                 print(f"Error response: {user_response.text}")
-                # Don't set fallback yet, we'll try again later
-                user_info = None
+                print(f"Response headers: {dict(user_response.headers)}")
+                # OAuth failed - user info is required
+                error_message = f"HuggingFace API error: {user_response.status_code}"
+                if user_response.status_code == 429:
+                    error_message = "HuggingFace is rate limiting requests. Please wait a few minutes and try again."
+                elif user_response.status_code == 401:
+                    error_message = "Authentication failed. Please try logging in again."
+                elif user_response.status_code == 403:
+                    error_message = "Access denied. Please check your HuggingFace account permissions."
+                
+                error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
+                return RedirectResponse(url=error_url)
         except Exception as user_error:
-            print(f"Error getting user info: {user_error}")
-            print(f"Error type: {type(user_error)}")
-            # Don't set fallback yet, we'll try again later
-            user_info = None
-        
-        # If user info retrieval failed, use placeholder but mark for retry
-        if not user_info:
-            user_info = {
-                "name": "huggingface-user",  # Temporary placeholder
-                "email": "user@huggingface.co",
-                "note": "User info retrieval failed during OAuth, will retry later",
-                "needs_retry": True  # Flag to indicate we need to retry
-            }
-            print("Using fallback user info, will retry user info retrieval later")
+            print(f"User info request error: {user_error}")
+            # OAuth failed due to user info error
+            error_message = f"Failed to retrieve user info: {str(user_error)}"
+            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
+            return RedirectResponse(url=error_url)
         
         # Generate session ID
         session_id = secrets.token_urlsafe(32)
@@ -429,33 +423,12 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
     hf_token = token_data["access_token"]
     user_info = token_data["user_info"]
     
-    # If user info needs retry, try to get it now
-    if user_info.get("needs_retry", False):
-        print("User info needs retry, attempting to get real user info...")
-        try:
-            real_user_info = await get_user_info_from_hf(hf_token)
-            if real_user_info:
-                # Update the stored user info
-                user_info = real_user_info
-                user_info['name'] = sanitize_username(user_info.get('name', 'Unknown'))
-                # Update the stored token data
-                token_data["user_info"] = user_info
-                print(f"Updated user info: {user_info.get('name', 'Unknown')}")
-            else:
-                print("Failed to get real user info, using fallback")
-        except HTTPException as e:
-            if e.status_code == 429:
-                # Rate limited - provide clear error message
-                raise HTTPException(
-                    status_code=429,
-                    detail="HuggingFace is rate limiting requests. Please wait a few minutes and try uploading again."
-                )
-            else:
-                # Re-raise other HTTP exceptions
-                raise
-        except Exception as e:
-            print(f"Unexpected error getting user info: {e}")
-            print("Using fallback username")
+    # User info should already be available from OAuth
+    if not user_info or user_info.get("is_placeholder", False):
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid user info. Please reconnect to HuggingFace."
+        )
     
     hf_username = sanitize_username(user_info["name"])
     
@@ -724,7 +697,11 @@ async def get_hf_connection_status(request: Request):
         }
     
     user_info = token_data["user_info"]
+    is_placeholder = user_info.get("is_placeholder", False)
+    needs_retry = user_info.get("needs_retry", False)
+    
     print(f"Status check: Returning connected status for user {user_info.get('name', 'Unknown')}")
+    print(f"Status check: is_placeholder={is_placeholder}, needs_retry={needs_retry}")
     
     return {
         "connected": True,
@@ -733,7 +710,10 @@ async def get_hf_connection_status(request: Request):
             "name": user_info.get("name", ""),
             "email": user_info.get("email", ""),
             "picture": user_info.get("picture", ""),
-            "is_pro": user_info.get("isPro", False)
+            "is_pro": user_info.get("isPro", False),
+            "is_placeholder": is_placeholder,
+            "needs_retry": needs_retry,
+            "note": user_info.get("note", "")
         },
         "expires_at": token_data["expires_at"].isoformat(),
         "debug": {
