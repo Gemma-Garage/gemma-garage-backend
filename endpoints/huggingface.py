@@ -307,29 +307,10 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 error_data = token_response.json()
                 error_type = error_data.get("error", "unknown_error")
                 error_description = error_data.get("error_description", "")
-                
-                if error_type == "invalid_grant":
-                    user_error = "Authorization code expired or already used. Please try logging in again."
-                elif error_type == "invalid_client":
-                    user_error = "Invalid client credentials. Please check OAuth configuration."
-                elif error_type == "invalid_request":
-                    user_error = f"Invalid request: {error_description}"
-                elif error_type == "unauthorized_client":
-                    user_error = "App not authorized for this scope. Please check HuggingFace app settings."
-                else:
-                    user_error = f"OAuth error: {error_type} - {error_description}"
-            except:
-                # Fallback to status code based messages
-                if token_response.status_code == 400:
-                    user_error = "Invalid authorization code. Please try logging in again."
-                elif token_response.status_code == 429:
-                    user_error = "Too many requests. Please wait a few minutes and try again."
-                elif token_response.status_code == 401:
-                    user_error = "Invalid client credentials. Please check OAuth configuration."
-                elif token_response.status_code == 403:
-                    user_error = "Access denied. Please check your HuggingFace app permissions."
-                else:
-                    user_error = f"Authentication failed ({token_response.status_code}). Please try again."
+                # Compose a detailed error for the frontend
+                user_error = f"OAuth error: {error_type} - {error_description} (raw: {response_text})"
+            except Exception as e:
+                user_error = f"Authentication failed ({token_response.status_code}). Raw response: {response_text}"
             
             error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(user_error)}"
             return RedirectResponse(url=error_url)
@@ -347,6 +328,7 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         # Get user info from HuggingFace API - required for OAuth success
         try:
             print(f"Attempting to get user info with access token: {access_token[:10]}...")
+            print(f"Full token data: {token_data}")
             
             # Try different Authorization header formats
             headers = {
@@ -354,14 +336,29 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                 "Accept": "application/json"
             }
             
+            print(f"Making request to /api/whoami with headers: {headers}")
+            
             async with httpx.AsyncClient() as client:
+                # Try the OAuth user info endpoint first
+                print("Trying OAuth user info endpoint...")
                 user_response = await make_hf_request_with_retry(
                     client,
                     "GET",
-                    "https://huggingface.co/api/whoami",
+                    "https://huggingface.co/oauth/userinfo",
                     headers=headers,
                     timeout=10.0
                 )
+                
+                # If that fails, try the regular API endpoint
+                if user_response.status_code != 200:
+                    print("OAuth user info failed, trying regular API endpoint...")
+                    user_response = await make_hf_request_with_retry(
+                        client,
+                        "GET",
+                        "https://huggingface.co/api/whoami",
+                        headers=headers,
+                        timeout=10.0
+                    )
             
             print(f"User info response status: {user_response.status_code}")
             
@@ -406,22 +403,19 @@ async def huggingface_callback(code: str, state: str, request: Request, response
                         else:
                             print(f"Alternative format also failed: {alt_response.status_code}")
                             print(f"Alt error response: {alt_response.text}")
-                            raise Exception("Both Authorization header formats failed")
+                            # Send the full error to the frontend
+                            error_message = f"User info failed (alt). Status: {alt_response.status_code}. Raw: {alt_response.text}"
+                            error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
+                            return RedirectResponse(url=error_url)
                             
                     except Exception as alt_error:
                         print(f"Alternative format attempt failed: {alt_error}")
-                        # OAuth failed - user info is required
-                        error_message = f"Authentication failed. Please try logging in again."
+                        error_message = f"Authentication failed. Alt format error: {alt_error}"
                         error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
                         return RedirectResponse(url=error_url)
                 else:
                     # OAuth failed - user info is required
-                    error_message = f"HuggingFace API error: {user_response.status_code}"
-                    if user_response.status_code == 429:
-                        error_message = "HuggingFace is rate limiting requests. Please wait a few minutes and try again."
-                    elif user_response.status_code == 403:
-                        error_message = "Access denied. Please check your HuggingFace account permissions."
-                    
+                    error_message = f"User info failed. Status: {user_response.status_code}. Raw: {user_response.text}"
                     error_url = f"{FRONTEND_URL}/huggingface-test?error={urllib.parse.quote(error_message)}"
                     return RedirectResponse(url=error_url)
         except Exception as user_error:
