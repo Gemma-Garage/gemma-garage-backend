@@ -215,13 +215,39 @@ async def huggingface_callback(code: str, state: str, request: Request, response
         if not access_token:
             raise HTTPException(status_code=400, detail="No access token received")
         
-        # Skip user info retrieval during OAuth to reduce API calls
-        # We can get user info later when needed using the access token
-        user_info = {
-            "name": "HuggingFace User", 
-            "email": "user@huggingface.co",
-            "note": "User info will be loaded when needed to avoid rate limiting during OAuth"
-        }
+        # Get user info from HuggingFace API
+        try:
+            async with httpx.AsyncClient() as client:
+                user_response = await make_hf_request_with_retry(
+                    client,
+                    "GET",
+                    "https://huggingface.co/api/whoami",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10.0
+                )
+            
+            if user_response.status_code == 200:
+                user_info = user_response.json()
+                # Sanitize the username for repository naming
+                original_name = user_info.get('name', 'Unknown')
+                user_info['name'] = sanitize_username(original_name)
+                print(f"Retrieved user info: {original_name} -> sanitized to: {user_info['name']}")
+            else:
+                # Fallback to placeholder if user info retrieval fails
+                user_info = {
+                    "name": "huggingface-user",  # Use valid username format
+                    "email": "user@huggingface.co",
+                    "note": "User info retrieval failed, using fallback"
+                }
+                print(f"Failed to get user info: {user_response.status_code}")
+        except Exception as user_error:
+            print(f"Error getting user info: {user_error}")
+            # Fallback to valid username format
+            user_info = {
+                "name": "huggingface-user",  # Use valid username format
+                "email": "user@huggingface.co",
+                "note": "User info retrieval failed, using fallback"
+            }
         
         # Generate session ID
         session_id = secrets.token_urlsafe(32)
@@ -293,6 +319,30 @@ async def huggingface_logout(request: Request, response: Response):
     
     return {"success": True, "message": "Logged out successfully"}
 
+def sanitize_username(username: str) -> str:
+    """Sanitize username for HuggingFace repository naming."""
+    if not username:
+        return "huggingface-user"
+    
+    # Replace spaces and invalid characters with hyphens
+    sanitized = username.replace(" ", "-").replace("_", "-")
+    # Remove any characters that aren't alphanumeric or hyphens
+    sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-")
+    # Remove consecutive hyphens
+    sanitized = "-".join(part for part in sanitized.split("-") if part)
+    # Ensure it doesn't start or end with hyphens
+    sanitized = sanitized.strip("-")
+    # Convert to lowercase
+    sanitized = sanitized.lower()
+    
+    # Ensure it's not empty and has reasonable length
+    if not sanitized or len(sanitized) < 1:
+        return "huggingface-user"
+    if len(sanitized) > 30:  # Keep reasonable length
+        sanitized = sanitized[:30]
+    
+    return sanitized
+
 def get_user_token(request: Request):
     """Get user token from session cookie or Authorization header."""
     # Try cookie first
@@ -326,7 +376,7 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
     
     hf_token = token_data["access_token"]
-    hf_username = token_data["user_info"]["name"]
+    hf_username = sanitize_username(token_data["user_info"]["name"])
     
     # Initialize HF API
     api = HfApi(token=hf_token)
