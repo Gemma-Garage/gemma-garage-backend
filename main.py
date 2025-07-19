@@ -2,7 +2,6 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from endpoints import model, dataset, finetune, download, inference, ingest, huggingface
-from huggingface_hub._oauth import attach_huggingface_oauth
 
 app = FastAPI(title="LLM Garage API")
 
@@ -19,9 +18,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add official Hugging Face OAuth endpoints
-attach_huggingface_oauth(app)
-print("HuggingFace OAuth endpoints attached successfully")
+# Try to add official Hugging Face OAuth endpoints if in HF Space environment
+try:
+    from huggingface_hub._oauth import attach_huggingface_oauth
+    
+    # Check if we're in a HuggingFace Space environment
+    if os.getenv("SPACE_ID") or os.getenv("HF_HUB_ENDPOINT"):
+        attach_huggingface_oauth(app)
+        print("HuggingFace OAuth endpoints attached successfully (HF Space environment)")
+    else:
+        print("Not in HF Space environment - OAuth endpoints not attached")
+        print("Using manual OAuth implementation instead")
+except Exception as e:
+    print(f"Could not attach HF OAuth endpoints: {e}")
+    print("Using manual OAuth implementation instead")
 
 app.include_router(model.router, prefix="/model", tags=["Model"])
 app.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])
