@@ -720,23 +720,44 @@ For more information about Gemma Garage, visit [our GitHub repository](https://g
 
 @router.post("/inference")
 async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
-    """Run inference using Hugging Face Inference API."""
-    
+    """Run inference using Hugging Face Inference Providers API (chat/completions) if possible, else fallback to legacy."""
     # Get user token
     token_data = get_user_token(fastapi_request)
     if not token_data:
         raise HTTPException(status_code=401, detail="Please log in with Hugging Face first")
-    
     hf_token = token_data["access_token"]
-    
-    # Call Hugging Face Inference API
+
+    # Try new Inference Providers API (OpenAI-compatible)
+    chat_payload = {
+        "model": request.model_name,
+        "messages": [{"role": "user", "content": request.prompt}],
+        "max_tokens": request.max_new_tokens
+    }
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
     async with httpx.AsyncClient() as client:
-        response = await client.post(
+        chat_resp = await client.post(
+            "https://router.huggingface.co/v1/chat/completions",
+            headers=headers,
+            json=chat_payload,
+            timeout=30.0
+        )
+    if chat_resp.status_code == 200:
+        chat_result = chat_resp.json()
+        # Extract generated text from OpenAI-compatible response
+        try:
+            generated_text = chat_result["choices"][0]["message"]["content"]
+        except Exception:
+            generated_text = str(chat_result)
+        return {"response": generated_text, "model": request.model_name}
+    # If 404 or not supported, fallback to legacy endpoint
+    # (e.g. for non-chat models)
+    async with httpx.AsyncClient() as client:
+        legacy_resp = await client.post(
             f"https://api-inference.huggingface.co/models/{request.model_name}",
-            headers={
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json"
-            },
+            headers=headers,
             json={
                 "inputs": request.prompt,
                 "parameters": {
@@ -746,25 +767,18 @@ async def hf_inference(request: HFInferenceRequest, fastapi_request: Request):
             },
             timeout=30.0
         )
-    
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=response.status_code, 
-            detail=f"Hugging Face API error: {response.text}"
-        )
-    
-    result = response.json()
-    
-    # Extract generated text
-    if isinstance(result, list) and len(result) > 0:
-        generated_text = result[0].get("generated_text", "")
-    else:
-        generated_text = str(result)
-    
-    return {
-        "response": generated_text,
-        "model": request.model_name
-    }
+    if legacy_resp.status_code == 200:
+        legacy_result = legacy_resp.json()
+        if isinstance(legacy_result, list) and len(legacy_result) > 0:
+            generated_text = legacy_result[0].get("generated_text", "")
+        else:
+            generated_text = str(legacy_result)
+        return {"response": generated_text, "model": request.model_name}
+    # If both fail, return error from the new API if available, else legacy
+    detail = f"Hugging Face API error: {chat_resp.text}"
+    if legacy_resp.status_code != 200:
+        detail += f" | Legacy API error: {legacy_resp.text}"
+    raise HTTPException(status_code=chat_resp.status_code, detail=detail)
 
 @router.get("/status")
 async def get_hf_connection_status(request: Request):
