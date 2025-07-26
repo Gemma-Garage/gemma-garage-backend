@@ -620,7 +620,7 @@ async def upload_model_to_hf(request: HFUploadRequest, fastapi_request: Request)
                 print(f"Downloading {blob.name} to {local_file_path}")
                 blob.download_to_filename(local_file_path)
             
-            # Create model card
+            # Create model card for LoRA adapters
             model_card_content = f"""---
 language: en
 license: apache-2.0
@@ -637,7 +637,7 @@ pipeline_tag: text-generation
 
 {request.description}
 
-This model was fine-tuned using [Gemma Garage](https://github.com/your-repo/gemma-garage), a platform for fine-tuning Gemma models with LoRA.
+This model contains **LoRA adapters** fine-tuned using [Gemma Garage](https://github.com/your-repo/gemma-garage), a platform for fine-tuning Gemma models with LoRA.
 
 ## Model Details
 
@@ -645,14 +645,41 @@ This model was fine-tuned using [Gemma Garage](https://github.com/your-repo/gemm
 - **Fine-tuning Method**: LoRA (Low-Rank Adaptation)
 - **Training Platform**: Gemma Garage
 - **Fine-tuned on**: {datetime.now().strftime('%Y-%m-%d')}
+- **Model Type**: LoRA Adapters (not merged)
 
 ## Usage
 
+### Option 1: Load with PEFT (Recommended)
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
 
+# Load base model
+base_model = AutoModelForCausalLM.from_pretrained("{request.base_model}")
 tokenizer = AutoTokenizer.from_pretrained("{repo_name}")
-model = AutoModelForCausalLM.from_pretrained("{repo_name}")
+
+# Load and apply LoRA adapters
+model = PeftModel.from_pretrained(base_model, "{repo_name}")
+
+# Generate text
+inputs = tokenizer("Your prompt here", return_tensors="pt")
+outputs = model.generate(**inputs, max_new_tokens=100)
+response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(response)
+```
+
+### Option 2: Merge and Load
+```python
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
+
+# Load base model
+base_model = AutoModelForCausalLM.from_pretrained("{request.base_model}")
+tokenizer = AutoTokenizer.from_pretrained("{repo_name}")
+
+# Load and merge LoRA adapters
+model = PeftModel.from_pretrained(base_model, "{repo_name}")
+model = model.merge_and_unload()
 
 # Generate text
 inputs = tokenizer("Your prompt here", return_tensors="pt")
