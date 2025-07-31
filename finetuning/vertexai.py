@@ -325,26 +325,28 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
 
 def get_logs(
     request_id: str,
-    since_timestamp: datetime,
+    since_timestamp: datetime | None,
     project_id: str = VERTEX_AI_PROJECT, # Use from env var
     limit: int = 200 
 ):
     client = logging.Client(project=project_id)
 
-    if since_timestamp.tzinfo is None:
-        since_timestamp = since_timestamp.replace(tzinfo=timezone.utc)
-
     # Define the convention for the custom log name
     # This MUST match the log name used in your gemma-garage-finetuning/src/finetuning.py script
     custom_log_name = f"gemma_garage_job_logs_{request_id}"
 
-    # Updated filter_str to query the custom log name
-    filter_str = (
-        f'logName="projects/{project_id}/logs/{custom_log_name}" '
-        f'AND timestamp >= "{since_timestamp.isoformat()}"'
-        # Optional: You might still want to filter by severity if your custom logs have it
-        # f'AND severity >= DEFAULT ' 
-    )
+    # Build filter string based on whether since_timestamp is provided
+    if since_timestamp is not None:
+        if since_timestamp.tzinfo is None:
+            since_timestamp = since_timestamp.replace(tzinfo=timezone.utc)
+        
+        filter_str = (
+            f'logName="projects/{project_id}/logs/{custom_log_name}" '
+            f'AND timestamp >= "{since_timestamp.isoformat()}"'
+        )
+    else:
+        # Fetch all logs when no since_timestamp is provided
+        filter_str = f'logName="projects/{project_id}/logs/{custom_log_name}"'
     
     print(f"Querying logs with new filter for custom log name: {filter_str}")
 

@@ -78,11 +78,14 @@ async def get_training_logs(request_id: str, since: str | None = Query(None)):
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid 'since' timestamp format. Use ISO 8601 (e.g., YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+00:00).")
         else:
-            # Default to 24 hours ago if 'since' is not provided
-            since_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
-            print(f"No 'since' provided for request_id {request_id}, defaulting to {since_timestamp.isoformat()}")
+            # Default to None to fetch all logs if 'since' is not provided
+            since_timestamp = None
+            print(f"No 'since' provided for request_id {request_id}, fetching all logs")
 
-        print(f"Fetching logs for request_id: {request_id}, since: {since_timestamp.isoformat()}")
+        if since_timestamp:
+            print(f"Fetching logs for request_id: {request_id}, since: {since_timestamp.isoformat()}")
+        else:
+            print(f"Fetching all logs for request_id: {request_id}")
         
         loss_values_json_str = get_logs(
             request_id=request_id,
