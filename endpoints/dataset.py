@@ -12,6 +12,7 @@ import uuid
 import requests
 from datasets import load_dataset
 import tempfile
+from huggingface_hub import HfApi
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ async def import_hf_dataset(request: HFDatasetImportRequest):
     """
     try:
         print(f"Importing HF dataset: {request.dataset_name}, split: {request.split}")
+        print(f"Dataset name type: {type(request.dataset_name)}")
+        print(f"Dataset name length: {len(request.dataset_name)}")
         
         # Load the dataset from Hugging Face
         dataset = load_dataset(request.dataset_name, split=request.split)
@@ -82,7 +85,21 @@ async def import_hf_dataset(request: HFDatasetImportRequest):
         
     except Exception as e:
         print(f"Error importing HF dataset: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to import Hugging Face dataset: {str(e)}")
+        error_message = str(e)
+        
+        # Provide more specific error messages
+        if "Couldn't find any data file" in error_message:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dataset '{request.dataset_name}' not found. Please check the dataset name and ensure it exists on Hugging Face Hub."
+            )
+        elif "split" in error_message.lower():
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Split '{request.split}' not available for dataset '{request.dataset_name}'. Try a different split (train, validation, test)."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to import Hugging Face dataset: {error_message}")
 
 
 # Helper function to parse JSON stream and ignore broken tail (from notebook)
