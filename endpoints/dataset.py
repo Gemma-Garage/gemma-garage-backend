@@ -10,6 +10,8 @@ import google.generativeai as genai
 from google.cloud import storage
 import uuid
 import requests
+from datasets import load_dataset
+import tempfile
 
 router = APIRouter()
 
@@ -22,6 +24,10 @@ class AugmentRequest(BaseModel):
     model_choice: str = "gemini-2.5-flash-preview-05-20"
     qa_pairs: int = 50
 
+class HFDatasetImportRequest(BaseModel):
+    dataset_name: str
+    split: str = "train"
+
 
 @router.post("/upload")
 async def upload_dataset(file: UploadFile = File(...)):
@@ -32,6 +38,51 @@ async def upload_dataset(file: UploadFile = File(...)):
         "message": f"{os.path.splitext(file.filename)[1].upper()[1:]} file uploaded successfully",
         "file_location": file_location
     }
+
+@router.post("/import-hf-dataset")
+async def import_hf_dataset(request: HFDatasetImportRequest):
+    """
+    Import a dataset from Hugging Face and save it to GCS.
+    """
+    try:
+        print(f"Importing HF dataset: {request.dataset_name}, split: {request.split}")
+        
+        # Load the dataset from Hugging Face
+        dataset = load_dataset(request.dataset_name, split=request.split)
+        
+        # Convert to list for JSON serialization
+        dataset_list = list(dataset)
+        
+        # Generate a unique filename
+        dataset_filename = f"hf_import_{uuid.uuid4()}.json"
+        
+        # Save to GCS
+        storage_client = storage.Client()
+        bucket_name = NEW_DATA_BUCKET.replace("gs://", "")
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(dataset_filename)
+        
+        # Upload the dataset as JSON
+        blob.upload_from_string(
+            json.dumps(dataset_list, indent=2),
+            content_type='application/json'
+        )
+        
+        file_location = f"gs://{bucket_name}/{dataset_filename}"
+        
+        return {
+            "message": f"Successfully imported {request.dataset_name} ({request.split} split)",
+            "file_location": file_location,
+            "dataset_info": {
+                "name": request.dataset_name,
+                "split": request.split,
+                "num_examples": len(dataset_list)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error importing HF dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to import Hugging Face dataset: {str(e)}")
 
 
 # Helper function to parse JSON stream and ignore broken tail (from notebook)
