@@ -38,8 +38,18 @@ def submit_finetuning_job(
     region = "us-central1"
     output_dir = f"{NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}"
 
+    # Handle dataset path - check if it already starts with gs:// or includes bucket name
+    if dataset_path.startswith("gs://"):
+        full_dataset_path = dataset_path
+    elif dataset_path.startswith(NEW_DATA_BUCKET.replace("gs://", "")):
+        # Path already includes bucket name, just add gs:// prefix
+        full_dataset_path = f"gs://{dataset_path}"
+    else:
+        # Path is just the filename, construct full path
+        full_dataset_path = f"{NEW_DATA_BUCKET}/{dataset_path}"
+
     args = {
-    "dataset": f"{NEW_DATA_BUCKET}/{dataset_path}",
+    "dataset": full_dataset_path,
     "output_dir": output_dir,
     "model_name": model_name,
     "epochs": epochs,
@@ -291,6 +301,16 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
     # Define labels for the Vertex AI job
     job_labels = {"gemma_garage_req_id": request_id}
 
+    # Handle dataset path - check if it already starts with gs:// or includes bucket name
+    if dataset_path.startswith("gs://"):
+        full_dataset_path = dataset_path
+    elif dataset_path.startswith(NEW_DATA_BUCKET.replace("gs://", "")):
+        # Path already includes bucket name, just add gs:// prefix
+        full_dataset_path = f"gs://{dataset_path}"
+    else:
+        # Path is just the filename, construct full path
+        full_dataset_path = f"{NEW_DATA_BUCKET}/{dataset_path}"
+
     job = aiplatform.CustomContainerTrainingJob(
         display_name=job_display_name,
         container_uri="gcr.io/llm-garage/gemma-finetune:latest",
@@ -298,7 +318,7 @@ def run_vertexai_job(model_name, dataset_path, epochs, learning_rate, lora_rank,
     )
 
     training_args = [
-        f"--dataset={NEW_DATA_BUCKET}/{dataset_path}",
+        f"--dataset={full_dataset_path}",
         f"--output_dir={NEW_MODEL_OUTPUT_BUCKET}/model/{request_id}", # Unique output dir per request
         f"--model_name={model_name}",
         f"--epochs={epochs}",
